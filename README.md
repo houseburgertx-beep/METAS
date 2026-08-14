@@ -64,10 +64,20 @@ npm test
 
 ## Deploy
 
-O projeto inclui dois caminhos:
+O frontend também está preparado para hospedagem gratuita no GitHub Pages:
 
-- deploy da aplicação full-stack pelo ambiente de Sites já configurado;
+```bash
+npm run build:github
+```
+
+Endereço principal: `https://houseburgertx-beep.github.io/METAS/`
+
+O projeto inclui estes caminhos:
+
+- frontend estático no GitHub Pages;
 - Firebase Hosting/Cloud Run com `firebase.json`, mais a função segura `analyzePerformance`.
+
+O Firebase Authentication e o Firestore podem ser acessados pelo frontend hospedado no GitHub Pages. A `GROQ_API_KEY` nunca deve ser colocada no site estático: a análise real deve chamar a função segura incluída em `functions/src/index.js`.
 
 Instale também as dependências da função antes do deploy Firebase:
 
