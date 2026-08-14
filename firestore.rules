@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin() { return signedIn() && userDoc().data.role == 'admin'; }
+    function isManagerOf(unitId) {
+      return signedIn() && userDoc().data.role == 'manager' && userDoc().data.unitId == unitId;
+    }
+    function canAccessUnit(unitId) { return isAdmin() || isManagerOf(unitId); }
+
+    match /users/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow create, update, delete: if isAdmin();
+    }
+    match /units/{unitId} {
+      allow read: if canAccessUnit(unitId);
+      allow write: if isAdmin();
+    }
+    match /goals/{goalId} {
+      allow read: if canAccessUnit(resource.data.unitId);
+      allow create: if isAdmin() && canAccessUnit(request.resource.data.unitId);
+      allow update, delete: if isAdmin() && canAccessUnit(resource.data.unitId);
+    }
+    match /dailySales/{saleId} {
+      allow read: if canAccessUnit(resource.data.unitId);
+      allow create: if canAccessUnit(request.resource.data.unitId);
+      allow update: if canAccessUnit(resource.data.unitId)
+        && request.resource.data.unitId == resource.data.unitId;
+      allow delete: if isAdmin();
+    }
+    match /monthlyPerformance/{id} {
+      allow read: if canAccessUnit(resource.data.unitId);
+      allow write: if isAdmin();
+    }
+    match /aiAnalyses/{id} {
+      allow read: if canAccessUnit(resource.data.unitId);
+      allow create: if canAccessUnit(request.resource.data.unitId);
+      allow update, delete: if isAdmin();
+    }
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

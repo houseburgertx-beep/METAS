@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "dailySales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "unitId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

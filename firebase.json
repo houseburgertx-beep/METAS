@@ -1,0 +1,12 @@
+{
+  "hosting": {
+    "public": "dist/client",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      { "source": "/api/ai", "function": { "functionId": "analyzePerformance", "region": "us-central1" } },
+      { "source": "**", "run": { "serviceId": "house-gestao-web", "region": "us-central1" } }
+    ]
+  },
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
+  "functions": { "source": "functions" }
+}
