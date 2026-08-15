@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-restaurant-channel-v5";
+const WORKER_VERSION = "2026-08-15-settled-payments-v6";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -283,13 +283,19 @@ async function syncTakeat(request, env, origin) {
     const observedChannels = new Set();
     const observedStatuses = {};
     let imported = 0, ignored = 0;
+    const ignoredReasons = { open: 0, canceled: 0, withoutValue: 0 };
     const rules = channelRules(unitId, env);
     for (const session of sessions) {
-      const value = Number(session.total_price || 0);
       const status = String(session.status || "unknown").toLowerCase();
       observedStatuses[status] = (observedStatuses[status] || 0) + 1;
-      const completed = status === "completed" || Boolean(session.completed_at);
-      if (!completed || session.delivery_canceled_at || !Number.isFinite(value) || value <= 0) { ignored += 1; continue; }
+      const paymentValue = (session.payments || []).reduce((total, payment) => total + Number(payment.payment_value || 0), 0);
+      const productValue = Number(session.total_price || 0);
+      const value = Number.isFinite(productValue) && productValue > 0 ? productValue : paymentValue;
+      const canceled = status.includes("cancel") || Boolean(session.delivery_canceled_at);
+      const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
+      if (canceled) { ignored += 1; ignoredReasons.canceled += 1; continue; }
+      if (!settled) { ignored += 1; ignoredReasons.open += 1; continue; }
+      if (!Number.isFinite(value) || value <= 0) { ignored += 1; ignoredReasons.withoutValue += 1; continue; }
       const classification = classifySession(session, rules);
       classification.channels.forEach((channel) => observedChannels.add(channel));
       totals[classification.key] += value;
@@ -308,7 +314,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, channels: [...observedChannels].sort(), statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, channels: [...observedChannels].sort(), statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
