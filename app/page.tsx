@@ -9,13 +9,14 @@ import {
   TrendingDown, TrendingUp, Truck, UserRound, UsersRound, UtensilsCrossed, X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { AdminGoalEditor } from "./admin-goals";
+import { CmvScreen } from "./cmv-screen";
 import { calculateBonus, calculatePerformance, validateDetails } from "@/lib/calculations";
-import { buildDemoAnalysis } from "@/lib/ai-demo";
 import { MANAGEMENT_RULES, UNITS } from "@/lib/config";
 import { formatDateBR, formatMoney, formatMoneyInput, formatPercent, parseMoney } from "@/lib/format";
-import type { OperatingInputs, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
+import type { CmvEntry, OperatingInputs, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
 
-type View = "dashboard" | "launch" | "history" | "ai" | "profile" | "admin";
+type View = "dashboard" | "launch" | "history" | "cmv" | "ai" | "profile" | "admin";
 type Theme = "light" | "dark" | "system";
 type SyncStatus = { state: "idle" | "syncing" | "success" | "error"; message: string };
 const currentDate = new Date();
@@ -155,15 +156,15 @@ function ProfileScreen({ unit, entries, role, profile, onLogout }: { unit: UnitC
   </div>;
 }
 
-function AdminScreen({ entries, onUnit }: { entries: SalesEntry[]; onUnit: (unit: UnitConfig) => void }) {
-  const cards = UNITS.map((unit) => ({ unit, metrics: calculatePerformance(unit, entries, currentDate) })).sort((a, b) => b.metrics.trajectoryPercentage - a.metrics.trajectoryPercentage);
+function AdminScreen({ entries, units, onUnit, onSaveGoals }: { entries: SalesEntry[]; units: UnitConfig[]; onUnit: (unit: UnitConfig) => void; onSaveGoals: (unit: UnitConfig) => Promise<void> }) {
+  const cards = units.map((unit) => ({ unit, metrics: calculatePerformance(unit, entries, currentDate) })).sort((a, b) => b.metrics.trajectoryPercentage - a.metrics.trajectoryPercentage);
   return <div className="screen-stack"><div className="page-title"><div><span className="eyebrow">Painel administrativo</span><h1>Visão geral das unidades</h1><p>Compare performance, risco e distância da trajetória.</p></div><button className="secondary-button"><UsersRound size={17} /> Gerenciar equipe</button></div><section className="admin-overview"><article className="surface-card"><span>Faturamento consolidado</span><strong>{formatMoney(cards.reduce((sum, card) => sum + card.metrics.total, 0))}</strong><Trend value={2.8} /></article><article className="surface-card"><span>Unidades no ritmo</span><strong>{cards.filter((card) => card.metrics.health === "green").length} de 3</strong><small>Atualizado em 14 de agosto</small></article><article className="surface-card"><span>Bonificação potencial</span><strong>{formatMoney(9000)}</strong><small>Máximo das três unidades</small></article></section>
-    <section className="unit-admin-grid">{cards.map(({ unit, metrics }, index) => <button className="unit-admin-card surface-card" key={unit.id} onClick={() => onUnit(unit)}><div className="unit-rank">#{index + 1}</div><div className="unit-card-head"><span className="unit-logo"><Building2 size={21} /></span><div><strong>{unit.name}</strong><span className={`status-badge status-${metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger"}`}>{metrics.healthLabel}</span></div></div><div className="unit-main-metric"><span>Realizado</span><strong>{formatMoney(metrics.total)}</strong></div><ProgressBar value={metrics.percentage} expected={(metrics.expected / unit.monthlyGoal) * 100} /><div className="unit-stats"><div><span>Trajetória</span><strong>{formatPercent(metrics.trajectoryPercentage)}</strong></div><div><span>Gap</span><strong className={metrics.gap >= 0 ? "positive" : "negative"}>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong></div><div><span>Projeção</span><strong>{formatMoney(metrics.projection)}</strong></div></div><span className="unit-open">Abrir unidade <ChevronRight size={16} /></span></button>)}</section>
+    <section className="unit-admin-grid">{cards.map(({ unit, metrics }, index) => <button className="unit-admin-card surface-card" key={unit.id} onClick={() => onUnit(unit)}><div className="unit-rank">#{index + 1}</div><div className="unit-card-head"><span className="unit-logo"><Building2 size={21} /></span><div><strong>{unit.name}</strong><span className={`status-badge status-${metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger"}`}>{metrics.healthLabel}</span></div></div><div className="unit-main-metric"><span>Realizado</span><strong>{formatMoney(metrics.total)}</strong></div><ProgressBar value={metrics.percentage} expected={(metrics.expected / unit.monthlyGoal) * 100} /><div className="unit-stats"><div><span>Trajetória</span><strong>{formatPercent(metrics.trajectoryPercentage)}</strong></div><div><span>Gap</span><strong className={metrics.gap >= 0 ? "positive" : "negative"}>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong></div><div><span>Projeção</span><strong>{formatMoney(metrics.projection)}</strong></div></div><span className="unit-open">Abrir unidade <ChevronRight size={16} /></span></button>)}</section><AdminGoalEditor units={units} onSave={onSaveGoals} />
   </div>;
 }
 
 function AppNavigation({ view, setView, role, profile, onLogout }: { view: View; setView: (view: View) => void; role: UserRole; profile: { name: string; email: string }; onLogout: () => void }) {
-  const items: { key: View; label: string; icon: React.ReactNode }[] = [{ key: "dashboard", label: "Início", icon: <Home size={20} /> }, { key: "history", label: "Histórico", icon: <History size={20} /> }, { key: "ai", label: "House IA", icon: <Sparkles size={20} /> }, { key: "profile", label: "Perfil", icon: <UserRound size={20} /> }];
+  const items: { key: View; label: string; icon: React.ReactNode }[] = [{ key: "dashboard", label: "Início", icon: <Home size={20} /> }, { key: "history", label: "Histórico", icon: <History size={20} /> }, { key: "cmv", label: "CMV", icon: <CircleDollarSign size={20} /> }, { key: "ai", label: "House IA", icon: <Sparkles size={20} /> }, { key: "profile", label: "Perfil", icon: <UserRound size={20} /> }];
   return <><aside className="sidebar"><div className="brand"><span className="brand-mark"><BarChart3 size={23} /></span><div><strong>HOUSE GESTÃO</strong><small>Central de Metas</small></div></div><nav>{role === "admin" && <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}><Building2 size={20} /><span>Visão geral</span></button>}{items.map((item) => <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>{item.icon}<span>{item.label === "Início" ? "Dashboard" : item.label}</span></button>)}</nav><div className="sidebar-bottom"><button><Settings size={19} /> Configurações</button><div className="sidebar-user"><div className="avatar">{profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div><div><strong>{profile.name || "Usuário House"}</strong><span>{role === "admin" ? "Administrador" : "Gerente"}</span></div><button className="logout-icon" onClick={onLogout} aria-label="Sair da conta"><LogOut size={17} /></button></div></div></aside><nav className="bottom-nav">{items.map((item) => <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>{item.icon}<span>{item.label}</span></button>)}</nav></>;
 }
 
@@ -173,8 +174,8 @@ function LoginScreen({ onLogin, error, loading }: { onLogin: (email: string, pas
 }
 
 export default function HomePage() {
-  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("manager"), [unit, setUnit] = useState<UnitConfig>(UNITS[0]), [entries, setEntries] = useState<SalesEntry[]>([]), [theme, setTheme] = useState<Theme>("system"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
-  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">("checking"), [loginError, setLoginError] = useState(""), [loginLoading, setLoginLoading] = useState(false), [profile, setProfile] = useState({ name: "", email: "" });
+  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("manager"), [units, setUnits] = useState<UnitConfig[]>(UNITS), [unit, setUnit] = useState<UnitConfig>(UNITS[0]), [entries, setEntries] = useState<SalesEntry[]>([]), [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]), [theme, setTheme] = useState<Theme>("system"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
+  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">(firebaseConfigured ? "checking" : "signedout"), [loginError, setLoginError] = useState(""), [loginLoading, setLoginLoading] = useState(false), [profile, setProfile] = useState({ name: "", email: "" });
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." });
   const [permittedUnits, setPermittedUnits] = useState<string[]>([]);
   async function synchronizeMonth(unitIds: string[]) {
@@ -213,7 +214,7 @@ export default function HomePage() {
     };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
-      const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
+      const unitName = units.find((item) => item.id === unitId)?.name || unitId;
       for (let index = 0; index < dates.length; index += 3) {
         const batchDates = dates.slice(index, index + 3);
         const batch = await Promise.allSettled(batchDates.map((date) => syncTakeatSale(unitId, date)));
@@ -301,33 +302,40 @@ export default function HomePage() {
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
   useEffect(() => { if (toast) { const id = window.setTimeout(() => setToast(null), 3200); return () => window.clearTimeout(id); } }, [toast]);
   useEffect(() => {
-    if (!firebaseConfigured) { setAuthState("signedout"); return; }
+    if (!firebaseConfigured) return;
     let unsubscribe: undefined | (() => void);
     void (async () => {
-      const [{ auth }, { onAuthStateChanged }, { loadUserProfile, loadUnitSales }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth"), import("@/lib/firestore-service")]);
+      const [{ auth }, { onAuthStateChanged }, { loadUserProfile, loadUnitSales, loadCmvEntries, loadUnitGoals }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth"), import("@/lib/firestore-service")]);
       if (!auth) return setAuthState("signedout");
       unsubscribe = onAuthStateChanged(auth, async (user) => {
-        if (!user) { setEntries([]); setProfile({ name: "", email: "" }); setAuthState("signedout"); return; }
+        if (!user) { setEntries([]); setCmvRecords([]); setProfile({ name: "", email: "" }); setAuthState("signedout"); return; }
         const profile = await loadUserProfile(user.uid);
         if (!profile?.role) { setLoginError("Seu perfil ainda não foi liberado pelo administrador."); setAuthState("signedout"); return; }
         setRole(profile.role); setProfile({ name: profile.name || user.email || "Usuário House", email: profile.email || user.email || "" });
         const monthPrefix = isoDate(currentDate).slice(0, 7);
+        const permitted = profile.role === "admin" ? UNITS.map((item) => item.id) : profile.unitId ? [profile.unitId] : [];
+        const goalOverrides = await loadUnitGoals(permitted);
+        const effectiveUnits = UNITS.map((base) => {
+          const override = goalOverrides.find((item) => item.id === base.id);
+          return override ? { ...base, ...override } : base;
+        });
+        setUnits(effectiveUnits);
+        setCmvRecords(await loadCmvEntries(permitted));
         if (profile.role === "admin") {
-          const adminDefaultUnit = UNITS.find((item) => item.id === "house190-teixeira") || UNITS[0];
+          const adminDefaultUnit = effectiveUnits.find((item) => item.id === "house190-teixeira") || effectiveUnits[0];
           setUnit(adminDefaultUnit);
-          const salesByUnit = await Promise.all(UNITS.map((item) => loadUnitSales(item.id, monthPrefix)));
+          const salesByUnit = await Promise.all(effectiveUnits.map((item) => loadUnitSales(item.id, monthPrefix)));
           setEntries(salesByUnit.flat());
           setView("admin");
         } else if (profile.unitId) {
-          const assigned = UNITS.find((item) => item.id === profile.unitId);
+          const assigned = effectiveUnits.find((item) => item.id === profile.unitId);
           if (assigned) {
             setUnit(assigned);
             setEntries(await loadUnitSales(assigned.id, monthPrefix));
           }
         }
         setAuthState("signedin");
-        const permitted = profile.role === "admin" ? UNITS.map((item) => item.id) : profile.unitId ? [profile.unitId] : [];
-        const automaticUnits = profile.role === "admin" ? [UNITS.find((item) => item.id === "house190-teixeira")?.id || UNITS[0].id] : permitted;
+        const automaticUnits = profile.role === "admin" ? [effectiveUnits.find((item) => item.id === "house190-teixeira")?.id || effectiveUnits[0].id] : permitted;
         setPermittedUnits(permitted);
         void synchronizeMonth(automaticUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }));
       });
@@ -335,11 +343,13 @@ export default function HomePage() {
     return () => unsubscribe?.();
   }, []);
   const login = async (email: string, password: string) => { setLoginLoading(true); setLoginError(""); try { const [{ auth }, { signInWithEmailAndPassword }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]); if (!auth) throw new Error(); await signInWithEmailAndPassword(auth, email, password); } catch { setLoginError("E-mail ou senha inválidos. Confira os dados e tente novamente."); } finally { setLoginLoading(false); } };
-  const logout = async () => { const [{ auth }, { signOut }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]); if (auth) await signOut(auth); setEntries([]); setPermittedUnits([]); setSyncStatus({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." }); setView("dashboard"); setUnit(UNITS[0]); };
+  const logout = async () => { const [{ auth }, { signOut }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]); if (auth) await signOut(auth); setEntries([]); setCmvRecords([]); setPermittedUnits([]); setUnits(UNITS); setSyncStatus({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." }); setView("dashboard"); setUnit(UNITS[0]); };
   const save = async (entry: SalesEntry) => { const normalized = { ...entry, source: entry.source || "manual" } as SalesEntry; if (firebaseConfigured) { const { saveDailySale } = await import("@/lib/firestore-service"); await saveDailySale(normalized); } setEntries((current) => [...current.filter((item) => !(item.unitId === normalized.unitId && item.date === normalized.date)), normalized].sort((a, b) => a.date.localeCompare(b.date))); setToast(`Vendas de ${formatDateBR(normalized.date)} registradas com sucesso.`); setView("dashboard"); };
   const syncTakeat = async (unitId: string, date: string) => { const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]); const entry = await syncTakeatSale(unitId, date); await saveDailySale(entry); setEntries((current) => [...current.filter((item) => !(item.unitId === entry.unitId && item.date === entry.date)), entry].sort((a, b) => a.date.localeCompare(b.date))); setToast(`Takeat sincronizada: ${formatMoney(entry.salao + entry.delivery + entry.ifood)} em ${formatDateBR(entry.date)}.`); return entry; };
+  const saveCmv = async (entry: CmvEntry) => { if (firebaseConfigured) { const { saveCmvEntry } = await import("@/lib/firestore-service"); await saveCmvEntry(entry); } setCmvRecords((current) => [entry, ...current.filter((item) => item.id !== entry.id)].sort((a, b) => b.weekStart.localeCompare(a.weekStart))); setToast(`CMV de ${formatDateBR(entry.weekStart)} a ${formatDateBR(entry.weekEnd)} salvo.`); };
+  const saveGoals = async (updated: UnitConfig) => { if (role !== "admin") throw new Error("Apenas administradores podem editar metas."); if (firebaseConfigured) { const { saveUnitGoals } = await import("@/lib/firestore-service"); await saveUnitGoals(updated); } setUnits((current) => current.map((item) => item.id === updated.id ? updated : item)); setUnit((current) => current.id === updated.id ? updated : current); setToast(`Todas as metas de ${updated.shortName} foram atualizadas.`); };
   const switchTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system"); const pickUnit = (next: UnitConfig) => { setUnit(next); setUnitMenu(false); setView("dashboard"); if (role === "admin") void synchronizeMonth([next.id]).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." })); };
   if (authState === "checking") return <div className="app-loading"><span className="brand-mark"><BarChart3 size={25} /></span><div><i /><i /><i /></div></div>;
   if (authState === "signedout") return <LoginScreen onLogin={login} error={loginError} loading={loginLoading} />;
-  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} profile={profile} onLogout={() => void logout()} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{UNITS.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} onNavigate={setView} syncStatus={syncStatus} onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }))} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} profile={profile} onLogout={() => void logout()} />}{view === "admin" && <AdminScreen entries={entries} onUnit={pickUnit} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Vendas sincronizadas</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
+  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} profile={profile} onLogout={() => void logout()} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{units.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} onNavigate={setView} syncStatus={syncStatus} onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }))} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "cmv" && <CmvScreen unit={unit} units={role === "admin" ? units : units.filter((item) => item.id === unit.id)} sales={entries} records={cmvRecords} role={role} onSave={saveCmv} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} profile={profile} onLogout={() => void logout()} />}{view === "admin" && <AdminScreen entries={entries} units={units} onUnit={pickUnit} onSaveGoals={saveGoals} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Atualização concluída</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
 }

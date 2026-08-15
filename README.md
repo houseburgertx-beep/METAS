@@ -1,5 +1,16 @@
 # HOUSE GESTÃO
 
+## Módulo de CMV
+
+O sistema calcula o CMV semanal sempre de domingo a sábado. O faturamento do período é obtido dos lançamentos diários sincronizados com a Takeat e os custos são lançados em quatro grupos: matéria-prima, central de produção, bebidas e embalagens.
+
+- Cada conferência fica em `cmvEntries/{unitId}_{weekStart}` e pode ser reaberta e editada.
+- O percentual é `custos totais / faturamento Takeat × 100`; registros sem faturamento não podem ser salvos.
+- O consolidado mensal soma custos e faturamentos das semanas cuja data de encerramento (sábado) pertence ao mês selecionado, evitando que uma semana seja contada duas vezes.
+- Quando as vendas do período estão carregadas, a tela recalcula o denominador com os dados Takeat mais recentes; o valor salvo permanece como fotografia de auditoria.
+- Metas, canais, bônus, limite de CMV e metas diárias são persistidos em `goals/{unitId}` e só podem ser alterados por administradores.
+- A House IA recebe os números já calculados, identifica o maior grupo de custo e devolve diagnóstico, alerta e três ações operacionais.
+
 Central de Metas e Performance para acompanhamento diário das unidades House190 e House Food Park.
 
 ## O que está pronto

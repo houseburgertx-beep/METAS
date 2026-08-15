@@ -23,12 +23,42 @@ export type UnitConfig = {
   monthlyGoal: number;
   superGoal: number;
   superBonus: number;
+  cmvTargetPercent: number;
   channels: {
     salao: { label: string; goal: number; bonus: number };
     delivery: { label: string; goal: number; details: DetailGoal[] };
     ifood: { label: string; goal: number; details: DetailGoal[] };
   };
   dailyTargets: Record<number, DailyTarget>;
+};
+
+export type CmvCosts = {
+  rawMaterials: number;
+  productionCenter: number;
+  beverages: number;
+  packaging: number;
+};
+
+export type CmvEntry = CmvCosts & {
+  id: string;
+  unitId: string;
+  weekStart: string;
+  weekEnd: string;
+  referenceMonth: string;
+  revenue: number;
+  targetPercent: number;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt: string;
+};
+
+export type CmvMetrics = CmvCosts & {
+  totalCost: number;
+  revenue: number;
+  percentage: number;
+  targetPercent: number;
+  variancePoints: number;
+  status: "healthy" | "attention" | "critical" | "no-revenue";
 };
 
 export type SalesEntry = {
