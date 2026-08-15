@@ -56,5 +56,6 @@ jobs:
             echo "Nenhuma alteração para publicar"
           else
             git commit -m "build: publica HOUSE GESTÃO com Firebase"
+            git pull --rebase origin main
             git push
           fi
