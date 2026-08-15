@@ -10,13 +10,12 @@ import { useEffect, useMemo, useState } from "react";
 import { calculateBonus, calculatePerformance, validateDetails } from "@/lib/calculations";
 import { buildDemoAnalysis } from "@/lib/ai-demo";
 import { MANAGEMENT_RULES, UNITS } from "@/lib/config";
-import { DEMO_ENTRIES } from "@/lib/demo-data";
 import { formatDateBR, formatMoney, formatMoneyInput, formatPercent, parseMoney } from "@/lib/format";
 import type { OperatingInputs, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
 
 type View = "dashboard" | "launch" | "history" | "ai" | "profile" | "admin";
 type Theme = "light" | "dark" | "system";
-const demoDate = new Date(2026, 7, 14);
+const currentDate = new Date();
 const firebaseConfigured = Boolean(process.env.NEXT_PUBLIC_FIREBASE_API_KEY && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
 const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const entryTotal = (entry: SalesEntry) => entry.salao + entry.delivery + entry.ifood;
@@ -75,7 +74,7 @@ function Donut({ channels }: { channels: { label: string; realized: number; key:
 }
 
 function Dashboard({ unit, entries, onNavigate }: { unit: UnitConfig; entries: SalesEntry[]; onNavigate: (view: View) => void }) {
-  const metrics = useMemo(() => calculatePerformance(unit, entries, demoDate), [unit, entries]), currentEntries = entries.filter((entry) => entry.unitId === unit.id), recent = currentEntries.slice(-7);
+  const metrics = useMemo(() => calculatePerformance(unit, entries, currentDate), [unit, entries]), currentEntries = entries.filter((entry) => entry.unitId === unit.id), recent = currentEntries.slice(-7);
   const channelValues = (key: "salao" | "delivery" | "ifood") => recent.map((entry) => entry[key]);
   const statusTone = metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger";
   const bonus = calculateBonus(unit, currentEntries, { cmvPercent: 32.8, freelancerSpend: 1180 });
@@ -102,7 +101,7 @@ function DetailAccordion({ title, total, items, values, onChange }: { title: str
 }
 
 function LaunchScreen({ unit, entries, onSave }: { unit: UnitConfig; entries: SalesEntry[]; onSave: (entry: SalesEntry) => Promise<void> }) {
-  const [date, setDate] = useState(isoDate(demoDate)); const existing = entries.find((entry) => entry.unitId === unit.id && entry.date === date);
+  const [date, setDate] = useState(isoDate(currentDate)); const existing = entries.find((entry) => entry.unitId === unit.id && entry.date === date);
   const [salao, setSalao] = useState(existing?.salao || 0), [delivery, setDelivery] = useState(existing?.delivery || 0), [ifood, setIfood] = useState(existing?.ifood || 0);
   const [deliveryDetails, setDeliveryDetails] = useState<Record<string, number>>(existing?.deliveryDetails || {}), [ifoodDetails, setIfoodDetails] = useState<Record<string, number>>(existing?.ifoodDetails || {}), [confirm, setConfirm] = useState(false), [saving, setSaving] = useState(false);
   const total = salao + delivery + ifood, [y, m, d] = date.split("-").map(Number), dailyTarget = unit.dailyTargets[new Date(y, m - 1, d).getDay()];
@@ -127,7 +126,7 @@ function HistoryScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntr
 
 type AIResult = { diagnostic: string; alert: string; numbers: string[]; actions: string[]; tomorrow: string; demo?: boolean };
 function AIScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntry[] }) {
-  const metrics = calculatePerformance(unit, entries, demoDate); const [result, setResult] = useState<AIResult | null>(null), [loading, setLoading] = useState(false), [prompt, setPrompt] = useState("Analisar minha performance");
+  const metrics = calculatePerformance(unit, entries, currentDate); const [result, setResult] = useState<AIResult | null>(null), [loading, setLoading] = useState(false), [prompt, setPrompt] = useState("Analisar minha performance");
   const analyze = async (intent: string) => { setLoading(true); setPrompt(intent); const [salao, delivery, ifood] = metrics.channels; const payload = { solicitacao: intent, unidade: unit.name, metaMensal: unit.monthlyGoal, superMeta: unit.superGoal, faturamentoAtual: metrics.total, metaEsperadaAteHoje: metrics.expected, gap: metrics.gap, projecao: metrics.projection, diasRestantes: metrics.remainingDays, mediaNecessaria: metrics.necessaryAverage, tendencia7Dias: metrics.weeklyEvolution, salao: { label: salao.label, realizado: salao.realized, meta: salao.goal }, delivery: { label: delivery.label, realizado: delivery.realized, meta: delivery.goal }, ifood: { label: ifood.label, realizado: ifood.realized, meta: ifood.goal }, regras: MANAGEMENT_RULES };
     try { const response = await fetch("https://house-gestao-ia.gleucedias1.workers.dev/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const data = await response.json(); if (!response.ok) throw new Error(); setResult(data); } catch { setResult({ diagnostic: "Não foi possível gerar a análise agora.", alert: "Verifique a conexão e tente novamente.", numbers: [], actions: [], tomorrow: "Atualize os dados e tente novamente." }); } finally { setLoading(false); } };
   return <div className="screen-stack ai-screen"><div className="page-title"><div><span className="eyebrow">House IA</span><h1>Consultor de performance</h1><p>Análises baseadas somente nos números calculados pelo sistema.</p></div></div><section className="ai-command-card"><div className="ai-orb"><Bot size={30} /></div><div><span className="ai-label"><Sparkles size={15} /> Analista de gestão</span><h2>Qual decisão você precisa tomar?</h2><p>A IA interpreta trajetória, canais, tendência, projeção e regras do programa.</p></div></section><div className="ai-prompt-grid">{["Analisar minha performance", "Como recuperar minha meta?", "Gerar plano de ação", "Analisar últimos 7 dias", "O que está prejudicando minha meta?", "Como alcançar a supermeta?"].map((item) => <button key={item} onClick={() => void analyze(item)}><Lightbulb size={17} /><span>{item}</span><ChevronRight size={16} /></button>)}</div>
@@ -140,12 +139,12 @@ function ProfileScreen({ unit, entries, role, setRole }: { unit: UnitConfig; ent
   return <div className="screen-stack"><div className="page-title"><div><span className="eyebrow">Performance e perfil</span><h1>Minha bonificação</h1><p>Regras aplicadas automaticamente à apuração.</p></div></div><section className="bonus-hero surface-card"><div><span className="eyebrow">Bônus conquistado</span><strong>{formatMoney(bonus.conquered)}</strong><p>de {formatMoney(bonus.potential)} possíveis</p></div><ProgressRing value={(bonus.conquered / bonus.potential) * 100} size={104} tone="warning" /></section>{(bonus.cmvBlocked || bonus.minimumBlocked) && <div className="blocking-alert"><ShieldCheck size={20} /><div><strong>Bonificação bloqueada</strong><p>{bonus.cmvBlocked ? "O CMV está acima do limite de 35%." : "É necessário atingir pelo menos duas categorias."}</p></div></div>}
     <section className="bonus-list surface-card"><div className="section-heading"><div><span className="eyebrow">Categorias</span><h2>Progresso da apuração</h2></div></div>{bonus.categories.map((category) => <article key={category.label}><div className="bonus-status"><span className={category.unlocked ? "done" : category.percentage >= 80 ? "near" : "far"}>{category.unlocked ? "✓" : Math.round(category.percentage) + "%"}</span><div><strong>{category.label}</strong><small>{formatMoney(category.realized)} de {formatMoney(category.goal)}</small></div></div><div className="bonus-amount"><span>{category.unlocked ? "Conquistado" : "Potencial"}</span><strong>{formatMoney(category.bonus)}</strong></div></article>)}</section>
     <section className="surface-card operating-card"><div className="section-heading"><div><span className="eyebrow">Critérios operacionais</span><h2>CMV e freelancers</h2></div></div><div className="operating-inputs"><label><span>CMV do mês</span><div><input type="number" step="0.1" value={operating.cmvPercent} onChange={(event) => setOperating({ ...operating, cmvPercent: Number(event.target.value) })} /><i>%</i></div><small>Máximo permitido: 35%</small></label><label><span>Freelancers</span><div><i>R$</i><input type="number" value={operating.freelancerSpend} onChange={(event) => setOperating({ ...operating, freelancerSpend: Number(event.target.value) })} /></div><small>Limite: R$ 1.500</small></label></div></section>
-    <section className="surface-card profile-card"><div className="avatar-large">GC</div><div><strong>Gerente da unidade</strong><span>gerente@house190.com.br</span><small>{unit.name}</small></div><select value={role} onChange={(event) => setRole(event.target.value as UserRole)} aria-label="Perfil de demonstração"><option value="manager">Perfil gerente</option><option value="admin">Perfil administrador</option></select></section>
+    <section className="surface-card profile-card"><div className="avatar-large">GC</div><div><strong>Gerente da unidade</strong><span>gerente@house190.com.br</span><small>{unit.name}</small></div><span className="profile-role">{role === "admin" ? "Administrador" : "Gerente"}</span></section>
   </div>;
 }
 
 function AdminScreen({ entries, onUnit }: { entries: SalesEntry[]; onUnit: (unit: UnitConfig) => void }) {
-  const cards = UNITS.map((unit) => ({ unit, metrics: calculatePerformance(unit, entries, demoDate) })).sort((a, b) => b.metrics.trajectoryPercentage - a.metrics.trajectoryPercentage);
+  const cards = UNITS.map((unit) => ({ unit, metrics: calculatePerformance(unit, entries, currentDate) })).sort((a, b) => b.metrics.trajectoryPercentage - a.metrics.trajectoryPercentage);
   return <div className="screen-stack"><div className="page-title"><div><span className="eyebrow">Painel administrativo</span><h1>Visão geral das unidades</h1><p>Compare performance, risco e distância da trajetória.</p></div><button className="secondary-button"><UsersRound size={17} /> Gerenciar equipe</button></div><section className="admin-overview"><article className="surface-card"><span>Faturamento consolidado</span><strong>{formatMoney(cards.reduce((sum, card) => sum + card.metrics.total, 0))}</strong><Trend value={2.8} /></article><article className="surface-card"><span>Unidades no ritmo</span><strong>{cards.filter((card) => card.metrics.health === "green").length} de 3</strong><small>Atualizado em 14 de agosto</small></article><article className="surface-card"><span>Bonificação potencial</span><strong>{formatMoney(9000)}</strong><small>Máximo das três unidades</small></article></section>
     <section className="unit-admin-grid">{cards.map(({ unit, metrics }, index) => <button className="unit-admin-card surface-card" key={unit.id} onClick={() => onUnit(unit)}><div className="unit-rank">#{index + 1}</div><div className="unit-card-head"><span className="unit-logo"><Building2 size={21} /></span><div><strong>{unit.name}</strong><span className={`status-badge status-${metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger"}`}>{metrics.healthLabel}</span></div></div><div className="unit-main-metric"><span>Realizado</span><strong>{formatMoney(metrics.total)}</strong></div><ProgressBar value={metrics.percentage} expected={(metrics.expected / unit.monthlyGoal) * 100} /><div className="unit-stats"><div><span>Trajetória</span><strong>{formatPercent(metrics.trajectoryPercentage)}</strong></div><div><span>Gap</span><strong className={metrics.gap >= 0 ? "positive" : "negative"}>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong></div><div><span>Projeção</span><strong>{formatMoney(metrics.projection)}</strong></div></div><span className="unit-open">Abrir unidade <ChevronRight size={16} /></span></button>)}</section>
   </div>;
@@ -162,22 +161,34 @@ function LoginScreen({ onLogin, error, loading }: { onLogin: (email: string, pas
 }
 
 export default function HomePage() {
-  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("admin"), [unit, setUnit] = useState<UnitConfig>(UNITS[1]), [entries, setEntries] = useState<SalesEntry[]>(DEMO_ENTRIES), [theme, setTheme] = useState<Theme>("system"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
-  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin" | "demo">(firebaseConfigured ? "checking" : "demo"), [loginError, setLoginError] = useState(""), [loginLoading, setLoginLoading] = useState(false);
+  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("manager"), [unit, setUnit] = useState<UnitConfig>(UNITS[0]), [entries, setEntries] = useState<SalesEntry[]>([]), [theme, setTheme] = useState<Theme>("system"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
+  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">("checking"), [loginError, setLoginError] = useState(""), [loginLoading, setLoginLoading] = useState(false);
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
   useEffect(() => { if (toast) { const id = window.setTimeout(() => setToast(null), 3200); return () => window.clearTimeout(id); } }, [toast]);
   useEffect(() => {
-    if (!firebaseConfigured) return;
+    if (!firebaseConfigured) { setAuthState("signedout"); return; }
     let unsubscribe: undefined | (() => void);
     void (async () => {
-      const [{ auth }, { onAuthStateChanged }, { loadUserProfile }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth"), import("@/lib/firestore-service")]);
+      const [{ auth }, { onAuthStateChanged }, { loadUserProfile, loadUnitSales }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth"), import("@/lib/firestore-service")]);
       if (!auth) return setAuthState("signedout");
       unsubscribe = onAuthStateChanged(auth, async (user) => {
-        if (!user) return setAuthState("signedout");
+        if (!user) { setEntries([]); setAuthState("signedout"); return; }
         const profile = await loadUserProfile(user.uid);
-        if (profile?.role) setRole(profile.role);
-        if (profile?.unitId) { const assigned = UNITS.find((item) => item.id === profile.unitId); if (assigned) setUnit(assigned); }
+        if (!profile?.role) { setLoginError("Seu perfil ainda não foi liberado pelo administrador."); setAuthState("signedout"); return; }
+        setRole(profile.role);
+        const monthPrefix = isoDate(currentDate).slice(0, 7);
+        if (profile.role === "admin") {
+          const salesByUnit = await Promise.all(UNITS.map((item) => loadUnitSales(item.id, monthPrefix)));
+          setEntries(salesByUnit.flat());
+          setView("admin");
+        } else if (profile.unitId) {
+          const assigned = UNITS.find((item) => item.id === profile.unitId);
+          if (assigned) {
+            setUnit(assigned);
+            setEntries(await loadUnitSales(assigned.id, monthPrefix));
+          }
+        }
         setAuthState("signedin");
       });
     })();
@@ -188,5 +199,5 @@ export default function HomePage() {
   const switchTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system"); const pickUnit = (next: UnitConfig) => { setUnit(next); setUnitMenu(false); setView("dashboard"); };
   if (authState === "checking") return <div className="app-loading"><span className="brand-mark"><BarChart3 size={25} /></span><div><i /><i /><i /></div></div>;
   if (authState === "signedout") return <LoginScreen onLogin={login} error={loginError} loading={loginLoading} />;
-  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{UNITS.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><span className="demo-mode">{firebaseConfigured ? "Online" : "Demonstração"}</span><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} onNavigate={setView} />}{view === "launch" && <LaunchScreen key={unit.id} unit={unit} entries={entries} onSave={save} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} setRole={(next) => { setRole(next); if (next === "admin") setView("admin"); }} />}{view === "admin" && <AdminScreen entries={entries} onUnit={pickUnit} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Vendas registradas</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
+  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{UNITS.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} onNavigate={setView} />}{view === "launch" && <LaunchScreen key={unit.id} unit={unit} entries={entries} onSave={save} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} setRole={(next) => { setRole(next); if (next === "admin") setView("admin"); }} />}{view === "admin" && <AdminScreen entries={entries} onUnit={pickUnit} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Vendas registradas</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
 }
