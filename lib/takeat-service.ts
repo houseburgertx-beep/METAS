@@ -13,6 +13,8 @@ export type TakeatSyncResult = SalesEntry & {
     tableTypes?: string[];
     deliveryBy?: string[];
     paymentMethods?: string[];
+    paymentMethodTotals?: Record<string, number>;
+    openProductTotals?: { salao?: number; delivery?: number; ifood?: number };
     deliverySignalStats?: Record<string, { count?: number; value?: number }>;
     basisTotals?: Record<"payment" | "product" | "service", { salao?: number; delivery?: number; ifood?: number }>;
     adjustmentTotals?: Record<"deliveryTax" | "totalDelivery" | "deliveryFeeDiscount" | "merchantDiscount" | "discountTotal" | "serviceDelta" | "paymentMinusProduct", number>;
