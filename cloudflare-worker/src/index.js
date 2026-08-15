@@ -3,6 +3,18 @@ const ALLOWED_ORIGINS = new Set([
   "https://house-gestao.gleuce.chatgpt.site",
 ]);
 
+const FIREBASE_PROJECT_ID = "house-gestao-49587";
+const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
+const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
+const firebaseKeys = { value: null, expiresAt: 0 };
+const takeatTokens = new Map();
+
+const UNIT_SECRET_NAMES = {
+  "house190-teixeira": ["TAKEAT_HOUSE190_TEIXEIRA_EMAIL", "TAKEAT_HOUSE190_TEIXEIRA_PASSWORD"],
+  "house190-eunapolis": ["TAKEAT_HOUSE190_EUNAPOLIS_EMAIL", "TAKEAT_HOUSE190_EUNAPOLIS_PASSWORD"],
+  "house-food-park": ["TAKEAT_HOUSE_FOOD_PARK_EMAIL", "TAKEAT_HOUSE_FOOD_PARK_PASSWORD"],
+};
+
 const SYSTEM_PROMPT = `Você é o HOUSE IA, Analista de Performance, Especialista em Vendas e Consultor de Gestão das unidades House.
 
 MISSÃO
@@ -69,44 +81,223 @@ function json(body, status, origin) {
   });
 }
 
+function decodeBase64Url(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0));
+}
+
+function parseJwtPart(value) {
+  return JSON.parse(new TextDecoder().decode(decodeBase64Url(value)));
+}
+
+async function getFirebaseKeys() {
+  if (firebaseKeys.value && firebaseKeys.expiresAt > Date.now()) return firebaseKeys.value;
+  const response = await fetch("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com");
+  if (!response.ok) throw new Error("Não foi possível validar o acesso Firebase.");
+  firebaseKeys.value = await response.json();
+  firebaseKeys.expiresAt = Date.now() + 60 * 60 * 1000;
+  return firebaseKeys.value;
+}
+
+async function verifyFirebaseToken(request, env) {
+  const authorization = request.headers.get("Authorization") || "";
+  if (!authorization.startsWith("Bearer ")) throw new Error("Acesso não autenticado.");
+  const token = authorization.slice(7);
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Sessão inválida.");
+  const header = parseJwtPart(parts[0]);
+  const payload = parseJwtPart(parts[1]);
+  const projectId = env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID;
+  if (header.alg !== "RS256" || !header.kid || payload.aud !== projectId || payload.iss !== `https://securetoken.google.com/${projectId}` || !payload.sub || payload.exp * 1000 <= Date.now()) throw new Error("Sessão expirada ou inválida.");
+  const keys = await getFirebaseKeys();
+  const jwk = keys.keys?.find((key) => key.kid === header.kid);
+  if (!jwk) throw new Error("Assinatura Firebase desconhecida.");
+  const cryptoKey = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", cryptoKey, decodeBase64Url(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`));
+  if (!valid) throw new Error("Assinatura Firebase inválida.");
+  return { token, uid: payload.sub, projectId };
+}
+
+function firestoreValue(field) {
+  if (!field) return undefined;
+  if ("stringValue" in field) return field.stringValue;
+  if ("booleanValue" in field) return field.booleanValue;
+  return undefined;
+}
+
+async function loadFirebaseProfile(auth) {
+  const url = `https://firestore.googleapis.com/v1/projects/${auth.projectId}/databases/(default)/documents/users/${encodeURIComponent(auth.uid)}`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+  if (!response.ok) throw new Error("Perfil de acesso não encontrado no Firestore.");
+  const document = await response.json();
+  return {
+    role: firestoreValue(document.fields?.role),
+    unitId: firestoreValue(document.fields?.unitId),
+    active: firestoreValue(document.fields?.active) !== false,
+  };
+}
+
+function getTakeatCredentials(unitId, env) {
+  if (env.TAKEAT_CREDENTIALS_JSON) {
+    try {
+      const credentials = JSON.parse(env.TAKEAT_CREDENTIALS_JSON)[unitId];
+      if (credentials?.email && credentials?.password) return credentials;
+    } catch {}
+  }
+  const names = UNIT_SECRET_NAMES[unitId];
+  if (!names) return null;
+  const email = env[names[0]], password = env[names[1]];
+  return email && password ? { email, password } : null;
+}
+
+async function getTakeatToken(unitId, env) {
+  const cached = takeatTokens.get(unitId);
+  if (cached?.expiresAt > Date.now()) return cached.token;
+  const credentials = getTakeatCredentials(unitId, env);
+  if (!credentials) throw new Error("Takeat ainda não configurada para esta unidade.");
+  const response = await fetch(TAKEAT_AUTH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credentials),
+  });
+  if (!response.ok) throw new Error("Credenciais Takeat recusadas para esta unidade.");
+  const data = await response.json();
+  if (!data.token) throw new Error("A Takeat não retornou um token válido.");
+  takeatTokens.set(unitId, { token: data.token, expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000 });
+  return data.token;
+}
+
+function collectChannels(session) {
+  const channels = [];
+  for (const bill of session.bills || []) {
+    for (const basket of bill.order_baskets || []) {
+      if (!basket.canceled_at && basket.channel) channels.push(String(basket.channel).trim().toLowerCase());
+    }
+  }
+  return [...new Set(channels)];
+}
+
+function channelRules(unitId, env) {
+  const defaults = { ifood: ["ifood"], delivery: ["delivery", "online", "site", "whatsapp", "takeat", "app"] };
+  if (!env.TAKEAT_CHANNEL_MAP_JSON) return defaults;
+  try {
+    const configured = JSON.parse(env.TAKEAT_CHANNEL_MAP_JSON)[unitId] || {};
+    return {
+      ifood: [...defaults.ifood, ...(configured.ifood || [])].map((value) => String(value).toLowerCase()),
+      delivery: [...defaults.delivery, ...(configured.delivery || [])].map((value) => String(value).toLowerCase()),
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function classifySession(session, rules) {
+  const channels = collectChannels(session);
+  const matches = (terms) => channels.some((channel) => terms.some((term) => channel.includes(term)));
+  if (matches(rules.ifood)) return { key: "ifood", channels };
+  const tableType = String(session.table?.table_type || "").toLowerCase();
+  if (session.is_delivery || session.with_withdrawal || tableType.includes("delivery") || matches(rules.delivery)) return { key: "delivery", channels };
+  return { key: "salao", channels };
+}
+
+function takeatPeriod(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Data inválida.");
+  const start = new Date(`${date}T03:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) throw new Error("Data inválida.");
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const format = (value) => value.toISOString().slice(0, 19);
+  return { start: format(start), end: format(end) };
+}
+
+async function syncTakeat(request, env, origin) {
+  try {
+    const auth = await verifyFirebaseToken(request, env);
+    const profile = await loadFirebaseProfile(auth);
+    if (!profile.active || !["admin", "manager"].includes(profile.role)) return json({ error: "Usuário sem permissão para sincronizar." }, 403, origin);
+    const body = await request.json();
+    const unitId = String(body?.unitId || ""), date = String(body?.date || "");
+    if (!UNIT_SECRET_NAMES[unitId]) return json({ error: "Unidade inválida." }, 400, origin);
+    if (profile.role !== "admin" && profile.unitId !== unitId) return json({ error: "Você não pode acessar a Takeat de outra unidade." }, 403, origin);
+    const period = takeatPeriod(date);
+    const token = await getTakeatToken(unitId, env);
+    const url = new URL(`${TAKEAT_API_URL}/table-sessions`);
+    url.searchParams.set("start_date", period.start);
+    url.searchParams.set("end_date", period.end);
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) {
+      if (response.status === 401) takeatTokens.delete(unitId);
+      throw new Error("A Takeat não respondeu à consulta de vendas.");
+    }
+    const sessions = await response.json();
+    if (!Array.isArray(sessions)) throw new Error("Resposta inesperada da Takeat.");
+    const totals = { salao: 0, delivery: 0, ifood: 0 };
+    const observedChannels = new Set();
+    let imported = 0, ignored = 0;
+    const rules = channelRules(unitId, env);
+    for (const session of sessions) {
+      const value = Number(session.total_price || 0);
+      if (session.status !== "completed" || session.delivery_canceled_at || !Number.isFinite(value) || value <= 0) { ignored += 1; continue; }
+      const classification = classifySession(session, rules);
+      classification.channels.forEach((channel) => observedChannels.add(channel));
+      totals[classification.key] += value;
+      imported += 1;
+    }
+    const cents = (value) => Math.round(value * 100) / 100;
+    return json({
+      id: `${unitId}_${date}`,
+      unitId,
+      date,
+      salao: cents(totals.salao),
+      delivery: cents(totals.delivery),
+      ifood: cents(totals.ifood),
+      deliveryDetails: {},
+      ifoodDetails: {},
+      source: "takeat",
+      createdBy: auth.uid,
+      updatedAt: new Date().toISOString(),
+      sourceSummary: { sessions: imported, ignored, channels: [...observedChannels].sort() },
+    }, 200, origin);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
+  }
+}
+
+async function analyzePerformance(request, env, origin) {
+  if (!env.GROQ_API_KEY) return json({ error: "GROQ_API_KEY não configurada" }, 503, origin);
+  try {
+    const contentLength = Number(request.headers.get("Content-Length") || 0);
+    if (contentLength > 60000) return json({ error: "Dados acima do limite" }, 413, origin);
+    const payload = await request.json();
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return json({ error: "Dados inválidos" }, 400, origin);
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: env.GROQ_MODEL || "openai/gpt-oss-120b",
+        temperature: 0.15,
+        seed: 190,
+        max_completion_tokens: 1800,
+        response_format: RESPONSE_FORMAT,
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: JSON.stringify(payload) }],
+      }),
+    });
+    if (!groqResponse.ok) return json({ error: "Falha temporária na análise" }, 502, origin);
+    const result = await groqResponse.json();
+    return json(JSON.parse(result.choices?.[0]?.message?.content || "{}"), 200, origin);
+  } catch {
+    return json({ error: "Não foi possível gerar a análise agora" }, 500, origin);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
+    if (!ALLOWED_ORIGINS.has(origin) && origin) return json({ error: "Origem não autorizada" }, 403, origin);
     const url = new URL(request.url);
-    if (url.pathname === "/health") return json({ ok: true, service: "house-gestao-ia" }, 200, origin);
-    if (url.pathname !== "/analyze" || request.method !== "POST") return json({ error: "Rota não encontrada" }, 404, origin);
-    if (!ALLOWED_ORIGINS.has(origin)) return json({ error: "Origem não autorizada" }, 403, origin);
-    if (!env.GROQ_API_KEY) return json({ error: "GROQ_API_KEY não configurada" }, 503, origin);
-
-    try {
-      const contentLength = Number(request.headers.get("Content-Length") || 0);
-      if (contentLength > 60000) return json({ error: "Dados acima do limite" }, 413, origin);
-      const payload = await request.json();
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return json({ error: "Dados inválidos" }, 400, origin);
-
-      const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: env.GROQ_MODEL || "openai/gpt-oss-120b",
-          temperature: 0.15,
-          seed: 190,
-          max_completion_tokens: 1800,
-          response_format: RESPONSE_FORMAT,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: JSON.stringify(payload) },
-          ],
-        }),
-      });
-
-      if (!groqResponse.ok) return json({ error: "Falha temporária na análise" }, 502, origin);
-      const result = await groqResponse.json();
-      const analysis = JSON.parse(result.choices?.[0]?.message?.content || "{}");
-      return json(analysis, 200, origin);
-    } catch {
-      return json({ error: "Não foi possível gerar a análise agora" }, 500, origin);
-    }
+    if (url.pathname === "/health") return json({ ok: true, service: "house-gestao", takeat: true }, 200, origin);
+    if (url.pathname === "/takeat/sync" && request.method === "POST") return syncTakeat(request, env, origin);
+    if (url.pathname === "/analyze" && request.method === "POST") return analyzePerformance(request, env, origin);
+    return json({ error: "Rota não encontrada" }, 404, origin);
   },
 };

@@ -42,6 +42,12 @@ export type SalesEntry = {
   ifoodDetails: Record<string, number>;
   createdBy?: string;
   updatedAt?: string;
+  source?: "manual" | "takeat";
+  sourceSummary?: {
+    sessions: number;
+    ignored: number;
+    channels: string[];
+  };
 };
 
 export type OperatingInputs = {

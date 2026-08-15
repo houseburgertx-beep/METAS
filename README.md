@@ -13,6 +13,7 @@ Central de Metas e Performance para acompanhamento diário das unidades House190
 - painel administrativo comparativo;
 - bonificação com CMV, freelancers e mínimo de categorias;
 - House IA com prompt fixo e resposta estruturada;
+- integração segura com a API Takeat por unidade, com sincronização automática de Salão, Delivery e iFood;
 - Firebase Authentication e regras Firestore por função/unidade;
 - PWA instalável;
 - modo demonstração quando as variáveis do Firebase ainda não foram configuradas.
@@ -107,3 +108,22 @@ As subdivisões de Delivery e iFood são apenas analíticas. Os cálculos de fat
 - gerentes não podem consultar documentos de outras unidades;
 - alterações administrativas exigem `role: admin`;
 - `.env*` com valores reais não deve ser versionado.
+
+## Integração Takeat
+
+O Cloudflare Worker autentica cada unidade separadamente, consulta `GET /table-sessions` no período diário de Brasília e devolve somente os totais consolidados. O frontend envia o token do Firebase; o Worker valida a assinatura e confere `role`/`unitId` no Firestore antes de consultar a Takeat.
+
+Cadastre no Cloudflare, em **Configurações → Variáveis e segredos**, as seis credenciais dos usuários exclusivos criados na Área do Gestor da Takeat:
+
+```text
+TAKEAT_HOUSE190_TEIXEIRA_EMAIL
+TAKEAT_HOUSE190_TEIXEIRA_PASSWORD
+TAKEAT_HOUSE190_EUNAPOLIS_EMAIL
+TAKEAT_HOUSE190_EUNAPOLIS_PASSWORD
+TAKEAT_HOUSE_FOOD_PARK_EMAIL
+TAKEAT_HOUSE_FOOD_PARK_PASSWORD
+```
+
+Marque as senhas como segredo criptografado. Não salve valores reais no repositório. O sistema usa `total_price`, que já considera descontos e não inclui taxa de serviço, ignora sessões não concluídas/canceladas e não soma subdivisões novamente.
+
+Por padrão, canal contendo `ifood` é iFood; sessões com `is_delivery`, retirada ou canal de entrega são Delivery; o restante é Salão. Após a primeira sincronização, confira `sourceSummary.channels` no lançamento salvo. Se a operação retornar nomes próprios diferentes, cadastre `TAKEAT_CHANNEL_MAP_JSON` como segredo com o mapeamento por unidade.
