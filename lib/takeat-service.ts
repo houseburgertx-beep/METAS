@@ -14,7 +14,10 @@ export type TakeatSyncResult = SalesEntry & {
     deliveryBy?: string[];
     paymentMethods?: string[];
     paymentMethodTotals?: Record<string, number>;
+    paymentMethodTotalsByChannel?: Record<"salao" | "delivery" | "ifood", Record<string, number>>;
     openProductTotals?: { salao?: number; delivery?: number; ifood?: number };
+    openServiceTotals?: { salao?: number; delivery?: number; ifood?: number };
+    adjustmentTotalsByChannel?: Record<"salao" | "delivery" | "ifood", Record<"deliveryTax" | "deliveryFeeDiscount" | "merchantDiscount" | "discountTotal" | "serviceDelta", number>>;
     deliverySignalStats?: Record<string, { count?: number; value?: number }>;
     basisTotals?: Record<"payment" | "product" | "service", { salao?: number; delivery?: number; ifood?: number }>;
     adjustmentTotals?: Record<"deliveryTax" | "totalDelivery" | "deliveryFeeDiscount" | "merchantDiscount" | "discountTotal" | "serviceDelta" | "paymentMinusProduct", number>;
