@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-paid-cancellations-v19";
+const WORKER_VERSION = "2026-08-15-financial-cancellations-v20";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -326,17 +326,27 @@ async function syncTakeat(request, env, origin) {
       const paymentValue = (session.payments || []).reduce((total, payment) => total + Number(payment.payment_value || 0), 0);
       const productValue = Number(session.total_price || 0);
       const serviceValue = Number(session.total_service_price || 0);
+      const deliveryFinalValue = Number(session.total_delivery_price || 0);
+      const statusCanceled = status.includes("cancel");
+      const canceledFinancialValue = Number.isFinite(paymentValue) && paymentValue > 0
+        ? paymentValue
+        : (Number.isFinite(deliveryFinalValue) && deliveryFinalValue > 0 ? deliveryFinalValue : 0);
       // A documentação da Takeat define payment_value como o valor que entrou
       // no faturamento, já descontado o troco. É a mesma base do relatório.
-      const rawValue = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
+      // Em sessões posteriormente canceladas, porém já consolidadas no relatório
+      // financeiro, algumas unidades retornam o valor somente em
+      // total_delivery_price. Esse é o valor final exibido pelo Takeat.
+      const rawValue = statusCanceled && canceledFinancialValue > 0
+        ? canceledFinancialValue
+        : (Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue);
       const classification = classifySession(session, rules);
       // O relatório financeiro da Takeat mantém comandas com status cancelado
       // quando já existe pagamento efetivamente recebido. Portanto, somente
       // cancelamentos sem payment_value positivo são excluídos do faturamento.
       // Isso também evita descartar vendas concluídas que possuem
       // delivery_canceled_at preenchido por alteração da entrega.
-      const canceled = status.includes("cancel") && !(Number.isFinite(paymentValue) && paymentValue > 0);
-      const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
+      const canceled = statusCanceled && canceledFinancialValue <= 0;
+      const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0 || (statusCanceled && canceledFinancialValue > 0);
       if (canceled) {
         const item = ignoredFinancials.canceled[classification.key];
         item.count += 1; item.payment += Number.isFinite(paymentValue) ? paymentValue : 0; item.product += Number.isFinite(productValue) ? productValue : 0;
