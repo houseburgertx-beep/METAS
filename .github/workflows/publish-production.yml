@@ -1,0 +1,60 @@
+name: Publicar HOUSE GESTÃO Produção
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "lib/**"
+      - "components/**"
+      - "vite.github.config.ts"
+      - "github-index.html"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/publish-production.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: house-gestao-production
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Compilar versão Firebase
+        run: npm run build:github
+
+      - name: Publicar arquivos na raiz
+        run: |
+          cp github-pages/github-index.html index.html
+          cp -R github-pages/assets/. assets/
+          cp github-pages/manifest-github.webmanifest manifest-github.webmanifest 2>/dev/null || true
+          cp github-pages/favicon.svg favicon.svg 2>/dev/null || true
+
+      - name: Salvar versão compilada
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html assets manifest-github.webmanifest favicon.svg
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração para publicar"
+          else
+            git commit -m "build: publica HOUSE GESTÃO com Firebase"
+            git push
+          fi
