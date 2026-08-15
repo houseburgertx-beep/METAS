@@ -183,7 +183,7 @@ export default function HomePage() {
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
     const dates = monthDatesUntil(currentDate), synchronized: SalesEntry[] = [], failures: string[] = [];
     const totalDays = dates.length * unitIds.length;
-    let completedDays = 0;
+    let completedDays = 0, fetchedSessions = 0, importedSessions = 0, ignoredSessions = 0, workerVersion = "";
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
       for (let index = 0; index < dates.length; index += 3) {
@@ -194,6 +194,11 @@ export default function HomePage() {
           if (result.status === "fulfilled") {
             synchronized.push(result.value);
             batchEntries.push(result.value);
+            const summary = result.value.sourceSummary;
+            fetchedSessions += summary?.fetched ?? ((summary?.sessions ?? 0) + (summary?.ignored ?? 0));
+            importedSessions += summary?.sessions ?? 0;
+            ignoredSessions += summary?.ignored ?? 0;
+            workerVersion = summary?.workerVersion || workerVersion;
           }
           else failures.push(result.reason instanceof Error ? result.reason.message : "Erro desconhecido na Takeat.");
         }
@@ -204,7 +209,7 @@ export default function HomePage() {
         completedDays += batchDates.length;
         setSyncStatus({
           state: "syncing",
-          message: `${unitName}: ${Math.min(index + batchDates.length, dates.length)} de ${dates.length} dias. Progresso total: ${completedDays} de ${totalDays}.`,
+          message: `${unitName}: ${Math.min(index + batchDates.length, dates.length)} de ${dates.length} dias • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas.`,
         });
       }
     }
@@ -214,7 +219,8 @@ export default function HomePage() {
       return;
     }
     const unitText = unitIds.length > 1 ? ` em ${unitIds.length} unidades` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText}. Última atualização às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const versionText = workerVersion ? ` • Integrador ${workerVersion}` : " • Integrador sem identificação";
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
