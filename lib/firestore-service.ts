@@ -3,7 +3,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   setDoc,
   where,
@@ -25,15 +24,13 @@ export async function saveDailySale(entry: SalesEntry) {
 
 export async function loadUnitSales(unitId: string, monthPrefix: string) {
   if (!db) return [];
+  const start = `${monthPrefix}-01`;
   const end = `${monthPrefix}-31`;
   const snapshot = await getDocs(
-    query(
-      collection(db, "dailySales"),
-      where("unitId", "==", unitId),
-      where("date", ">=", `${monthPrefix}-01`),
-      where("date", "<=", end),
-      orderBy("date", "asc"),
-    ),
+    query(collection(db, "dailySales"), where("unitId", "==", unitId)),
   );
-  return snapshot.docs.map((item) => item.data() as SalesEntry);
+  return snapshot.docs
+    .map((item) => item.data() as SalesEntry)
+    .filter((entry) => entry.date >= start && entry.date <= end)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
