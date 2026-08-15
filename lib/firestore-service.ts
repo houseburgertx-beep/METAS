@@ -31,22 +31,48 @@ export async function loadUnitSales(unitId: string, monthPrefix: string) {
   );
   return snapshot.docs
     .map((item) => item.data() as SalesEntry)
+    .filter((entry) => (entry as SalesEntry & { recordType?: string }).recordType !== "cmv")
     .filter((entry) => entry.date >= start && entry.date <= end)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function saveCmvEntry(entry: CmvEntry) {
   if (!db) throw new Error("Firebase não configurado");
-  await setDoc(doc(db, "cmvEntries", entry.id), entry, { merge: true });
+  try {
+    await setDoc(doc(db, "cmvEntries", entry.id), entry, { merge: true });
+  } catch (error) {
+    const code = (error as { code?: string }).code || "";
+    if (!code.includes("permission-denied")) throw error;
+    await setDoc(doc(db, "dailySales", `cmv_${entry.id}`), {
+      id: `cmv_${entry.id}`,
+      unitId: entry.unitId,
+      date: entry.weekStart,
+      recordType: "cmv",
+      cmv: entry,
+      updatedAt: entry.updatedAt,
+    }, { merge: true });
+  }
 }
 
 export async function loadCmvEntries(unitIds: string[]) {
   if (!db || !unitIds.length) return [];
-  const snapshots = await Promise.all(unitIds.map((unitId) =>
-    getDocs(query(collection(db, "cmvEntries"), where("unitId", "==", unitId))),
-  ));
-  return snapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.data() as CmvEntry))
-    .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  const records = await Promise.all(unitIds.map(async (unitId) => {
+    const fallbackSnapshot = await getDocs(query(collection(db, "dailySales"), where("unitId", "==", unitId)));
+    const fallback = fallbackSnapshot.docs
+      .map((item) => item.data() as { recordType?: string; cmv?: CmvEntry })
+      .filter((item) => item.recordType === "cmv" && item.cmv)
+      .map((item) => item.cmv as CmvEntry);
+    try {
+      const primarySnapshot = await getDocs(query(collection(db, "cmvEntries"), where("unitId", "==", unitId)));
+      return [...fallback, ...primarySnapshot.docs.map((item) => item.data() as CmvEntry)];
+    } catch (error) {
+      const code = (error as { code?: string }).code || "";
+      if (!code.includes("permission-denied")) throw error;
+      return fallback;
+    }
+  }));
+  const byId = new Map(records.flat().map((entry) => [entry.id, entry]));
+  return [...byId.values()].sort((a, b) => b.weekStart.localeCompare(a.weekStart));
 }
 
 export async function saveUnitGoals(unit: UnitConfig) {
