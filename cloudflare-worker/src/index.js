@@ -268,11 +268,15 @@ async function syncTakeat(request, env, origin) {
     }
     const totals = { salao: 0, delivery: 0, ifood: 0 };
     const observedChannels = new Set();
+    const observedStatuses = {};
     let imported = 0, ignored = 0;
     const rules = channelRules(unitId, env);
     for (const session of sessions) {
       const value = Number(session.total_price || 0);
-      if (session.status !== "completed" || session.delivery_canceled_at || !Number.isFinite(value) || value <= 0) { ignored += 1; continue; }
+      const status = String(session.status || "unknown").toLowerCase();
+      observedStatuses[status] = (observedStatuses[status] || 0) + 1;
+      const completed = status === "completed" || Boolean(session.completed_at);
+      if (!completed || session.delivery_canceled_at || !Number.isFinite(value) || value <= 0) { ignored += 1; continue; }
       const classification = classifySession(session, rules);
       classification.channels.forEach((channel) => observedChannels.add(channel));
       totals[classification.key] += value;
@@ -291,7 +295,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, channels: [...observedChannels].sort(), workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, channels: [...observedChannels].sort(), statuses: observedStatuses, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
