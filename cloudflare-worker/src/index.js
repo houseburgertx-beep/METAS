@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-settled-payments-v6";
+const WORKER_VERSION = "2026-08-15-payment-revenue-v7";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -290,7 +290,9 @@ async function syncTakeat(request, env, origin) {
       observedStatuses[status] = (observedStatuses[status] || 0) + 1;
       const paymentValue = (session.payments || []).reduce((total, payment) => total + Number(payment.payment_value || 0), 0);
       const productValue = Number(session.total_price || 0);
-      const value = Number.isFinite(productValue) && productValue > 0 ? productValue : paymentValue;
+      // A documentação da Takeat define payment_value como o valor que entrou
+      // no faturamento, já descontado o troco. É a mesma base do relatório.
+      const value = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
       const canceled = status.includes("cancel") || Boolean(session.delivery_canceled_at);
       const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
       if (canceled) { ignored += 1; ignoredReasons.canceled += 1; continue; }
@@ -314,7 +316,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, channels: [...observedChannels].sort(), statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
