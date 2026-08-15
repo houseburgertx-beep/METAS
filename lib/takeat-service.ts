@@ -8,7 +8,10 @@ export type TakeatSyncResult = SalesEntry & {
   sourceSummary?: {
     sessions: number;
     ignored: number;
+    fetched?: number;
     channels: string[];
+    statuses?: Record<string, number>;
+    workerVersion?: string;
   };
 };
 
