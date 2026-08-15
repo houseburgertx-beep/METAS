@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-takeat-final-v18";
+const WORKER_VERSION = "2026-08-15-paid-cancellations-v19";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -330,10 +330,12 @@ async function syncTakeat(request, env, origin) {
       // no faturamento, já descontado o troco. É a mesma base do relatório.
       const rawValue = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
       const classification = classifySession(session, rules);
-      // delivery_canceled_at também aparece em vendas já concluídas e recebidas.
-      // O relatório da Takeat mantém essas vendas; cancelamento real é definido
-      // pelo status da comanda.
-      const canceled = status.includes("cancel");
+      // O relatório financeiro da Takeat mantém comandas com status cancelado
+      // quando já existe pagamento efetivamente recebido. Portanto, somente
+      // cancelamentos sem payment_value positivo são excluídos do faturamento.
+      // Isso também evita descartar vendas concluídas que possuem
+      // delivery_canceled_at preenchido por alteração da entrega.
+      const canceled = status.includes("cancel") && !(Number.isFinite(paymentValue) && paymentValue > 0);
       const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
       if (canceled) {
         const item = ignoredFinancials.canceled[classification.key];
