@@ -190,6 +190,7 @@ export default function HomePage() {
     const observedTableTypes = new Set<string>();
     const observedDeliveryBy = new Set<string>();
     const observedPaymentMethods = new Set<string>();
+    const deliverySignalStats: Record<string, { count: number; value: number }> = {};
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -215,6 +216,10 @@ export default function HomePage() {
             summary?.tableTypes?.forEach((type) => observedTableTypes.add(type));
             summary?.deliveryBy?.forEach((type) => observedDeliveryBy.add(type));
             summary?.paymentMethods?.forEach((method) => observedPaymentMethods.add(method));
+            Object.entries(summary?.deliverySignalStats || {}).forEach(([key, stat]) => {
+              const current = deliverySignalStats[key] || { count: 0, value: 0 };
+              deliverySignalStats[key] = { count: current.count + (stat.count || 0), value: current.value + (stat.value || 0) };
+            });
             workerVersion = summary?.workerVersion || workerVersion;
             const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
             if (restaurantName) authenticatedRestaurants.add(restaurantName);
@@ -246,7 +251,10 @@ export default function HomePage() {
     const tableTypeText = observedTableTypes.size ? ` • Tipos API: ${[...observedTableTypes].sort().join(", ")}` : "";
     const deliveryByText = observedDeliveryBy.size ? ` • Entrega API: ${[...observedDeliveryBy].sort().join(", ")}` : "";
     const paymentMethodsText = observedPaymentMethods.size ? ` • Pagamentos API: ${[...observedPaymentMethods].sort().join(", ")}` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const deliveryMatrixText = Object.keys(deliverySignalStats).length
+      ? ` • Matriz entrega: ${Object.entries(deliverySignalStats).sort(([a], [b]) => a.localeCompare(b)).map(([key, stat]) => `${key}=${stat.count}/${formatMoney(stat.value)}`).join("; ")}`
+      : "";
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
