@@ -1,0 +1,13 @@
+{
+  "name": "house-gestao-ia-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.js"
+  },
+  "devDependencies": {
+    "wrangler": "4.92.0"
+  }
+}
