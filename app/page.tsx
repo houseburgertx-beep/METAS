@@ -189,6 +189,7 @@ export default function HomePage() {
     const observedChannels = new Set<string>();
     const observedTableTypes = new Set<string>();
     const observedDeliveryBy = new Set<string>();
+    const observedPaymentMethods = new Set<string>();
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -213,6 +214,7 @@ export default function HomePage() {
             summary?.channels?.forEach((channel) => observedChannels.add(channel));
             summary?.tableTypes?.forEach((type) => observedTableTypes.add(type));
             summary?.deliveryBy?.forEach((type) => observedDeliveryBy.add(type));
+            summary?.paymentMethods?.forEach((method) => observedPaymentMethods.add(method));
             workerVersion = summary?.workerVersion || workerVersion;
             const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
             if (restaurantName) authenticatedRestaurants.add(restaurantName);
@@ -243,7 +245,8 @@ export default function HomePage() {
     const observedText = observedChannels.size ? ` • Canais API: ${[...observedChannels].sort().join(", ")}` : " • Canais API: não informados";
     const tableTypeText = observedTableTypes.size ? ` • Tipos API: ${[...observedTableTypes].sort().join(", ")}` : "";
     const deliveryByText = observedDeliveryBy.size ? ` • Entrega API: ${[...observedDeliveryBy].sort().join(", ")}` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const paymentMethodsText = observedPaymentMethods.size ? ` • Pagamentos API: ${[...observedPaymentMethods].sort().join(", ")}` : "";
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
