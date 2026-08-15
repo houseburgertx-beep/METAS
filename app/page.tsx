@@ -182,18 +182,31 @@ export default function HomePage() {
     setSyncStatus({ state: "syncing", message: "Buscando Salão, Delivery e iFood desde o primeiro dia do mês..." });
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
     const dates = monthDatesUntil(currentDate), synchronized: SalesEntry[] = [], failures: string[] = [];
+    const totalDays = dates.length * unitIds.length;
+    let completedDays = 0;
     for (const unitId of unitIds) {
+      const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
       for (let index = 0; index < dates.length; index += 3) {
-        const batch = await Promise.allSettled(dates.slice(index, index + 3).map((date) => syncTakeatSale(unitId, date)));
+        const batchDates = dates.slice(index, index + 3);
+        const batch = await Promise.allSettled(batchDates.map((date) => syncTakeatSale(unitId, date)));
+        const batchEntries: SalesEntry[] = [];
         for (const result of batch) {
-          if (result.status === "fulfilled") synchronized.push(result.value);
+          if (result.status === "fulfilled") {
+            synchronized.push(result.value);
+            batchEntries.push(result.value);
+          }
           else failures.push(result.reason instanceof Error ? result.reason.message : "Erro desconhecido na Takeat.");
         }
+        if (batchEntries.length) {
+          await Promise.all(batchEntries.map((entry) => saveDailySale(entry)));
+          setEntries((current) => mergeSalesEntries(current, batchEntries));
+        }
+        completedDays += batchDates.length;
+        setSyncStatus({
+          state: "syncing",
+          message: `${unitName}: ${Math.min(index + batchDates.length, dates.length)} de ${dates.length} dias. Progresso total: ${completedDays} de ${totalDays}.`,
+        });
       }
-    }
-    if (synchronized.length) {
-      await Promise.all(synchronized.map((entry) => saveDailySale(entry)));
-      setEntries((current) => mergeSalesEntries(current, synchronized));
     }
     if (failures.length) {
       const unique = [...new Set(failures)];
