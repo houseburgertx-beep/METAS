@@ -11,6 +11,7 @@ export type TakeatSyncResult = SalesEntry & {
     fetched?: number;
     channels: string[];
     statuses?: Record<string, number>;
+    restaurant?: { id: string | number | null; name: string; fantasyName: string };
     workerVersion?: string;
   };
 };
