@@ -184,6 +184,7 @@ export default function HomePage() {
     const dates = monthDatesUntil(currentDate), synchronized: SalesEntry[] = [], failures: string[] = [];
     const totalDays = dates.length * unitIds.length;
     let completedDays = 0, fetchedSessions = 0, importedSessions = 0, ignoredSessions = 0, workerVersion = "";
+    const ignoredReasons = { open: 0, canceled: 0, withoutValue: 0 };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -199,6 +200,9 @@ export default function HomePage() {
             fetchedSessions += summary?.fetched ?? ((summary?.sessions ?? 0) + (summary?.ignored ?? 0));
             importedSessions += summary?.sessions ?? 0;
             ignoredSessions += summary?.ignored ?? 0;
+            ignoredReasons.open += summary?.ignoredReasons?.open ?? 0;
+            ignoredReasons.canceled += summary?.ignoredReasons?.canceled ?? 0;
+            ignoredReasons.withoutValue += summary?.ignoredReasons?.withoutValue ?? 0;
             workerVersion = summary?.workerVersion || workerVersion;
             const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
             if (restaurantName) authenticatedRestaurants.add(restaurantName);
@@ -224,7 +228,8 @@ export default function HomePage() {
     const unitText = unitIds.length > 1 ? ` em ${unitIds.length} unidades` : "";
     const versionText = workerVersion ? ` • Integrador ${workerVersion}` : " • Integrador sem identificação";
     const restaurantText = authenticatedRestaurants.size ? ` • Restaurante API: ${[...authenticatedRestaurants].join(", ")}` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${restaurantText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const ignoredText = ignoredSessions ? ` (${ignoredReasons.open} abertas, ${ignoredReasons.canceled} canceladas, ${ignoredReasons.withoutValue} sem valor)` : "";
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
