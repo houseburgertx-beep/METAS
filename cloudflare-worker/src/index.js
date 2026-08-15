@@ -209,6 +209,41 @@ function takeatPeriod(date) {
   return { start: format(start), end: format(end) };
 }
 
+async function fetchTakeatRange(token, start, end, depth = 0) {
+  const url = new URL(`${TAKEAT_API_URL}/table-sessions`);
+  url.searchParams.set("start_date", start);
+  url.searchParams.set("end_date", end);
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) {
+    if (response.status === 401) throw new Error("TAKEAT_TOKEN_EXPIRED");
+    throw new Error("A Takeat não respondeu à consulta de vendas.");
+  }
+  const sessions = await response.json();
+  if (!Array.isArray(sessions)) throw new Error("Resposta inesperada da Takeat.");
+
+  // A API pode limitar silenciosamente a resposta a 20 comandas. Como a
+  // documentação não oferece cursor/página, dividimos o período até cada
+  // resposta ficar abaixo do limite e então removemos duplicidades pelo ID.
+  if (sessions.length < 20) return sessions;
+  const startAt = new Date(`${start}Z`), endAt = new Date(`${end}Z`);
+  const duration = endAt.getTime() - startAt.getTime();
+  if (depth >= 8 || duration <= 5 * 60 * 1000) {
+    throw new Error("A Takeat limitou a quantidade de comandas. Tente atualizar novamente.");
+  }
+  const middleAt = new Date(startAt.getTime() + Math.floor(duration / 2));
+  const middle = middleAt.toISOString().slice(0, 19);
+  const [left, right] = await Promise.all([
+    fetchTakeatRange(token, start, middle, depth + 1),
+    fetchTakeatRange(token, middle, end, depth + 1),
+  ]);
+  const unique = new Map();
+  for (const session of [...left, ...right]) {
+    const key = session?.id ?? `${session?.start_time || ""}_${session?.total_price || ""}_${unique.size}`;
+    unique.set(String(key), session);
+  }
+  return [...unique.values()];
+}
+
 async function syncTakeat(request, env, origin) {
   try {
     const auth = await verifyFirebaseToken(request, env);
@@ -220,16 +255,16 @@ async function syncTakeat(request, env, origin) {
     if (profile.role !== "admin" && profile.unitId !== unitId) return json({ error: "Você não pode acessar a Takeat de outra unidade." }, 403, origin);
     const period = takeatPeriod(date);
     const token = await getTakeatToken(unitId, env);
-    const url = new URL(`${TAKEAT_API_URL}/table-sessions`);
-    url.searchParams.set("start_date", period.start);
-    url.searchParams.set("end_date", period.end);
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) {
-      if (response.status === 401) takeatTokens.delete(unitId);
-      throw new Error("A Takeat não respondeu à consulta de vendas.");
+    let sessions;
+    try {
+      sessions = await fetchTakeatRange(token, period.start, period.end);
+    } catch (error) {
+      if (error instanceof Error && error.message === "TAKEAT_TOKEN_EXPIRED") {
+        takeatTokens.delete(unitId);
+        throw new Error("A sessão da Takeat expirou. Toque em Atualizar novamente.");
+      }
+      throw error;
     }
-    const sessions = await response.json();
-    if (!Array.isArray(sessions)) throw new Error("Resposta inesperada da Takeat.");
     const totals = { salao: 0, delivery: 0, ifood: 0 };
     const observedChannels = new Set();
     let imported = 0, ignored = 0;

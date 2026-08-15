@@ -200,8 +200,8 @@ export default function HomePage() {
       setSyncStatus({ state: "error", message: synchronized.length ? `${synchronized.length} dias atualizados. ${unique[0]}` : unique[0] });
       return;
     }
-    const salesDays = synchronized.filter((entry) => entryTotal(entry) > 0).length;
-    setSyncStatus({ state: "success", message: `${salesDays} dias com vendas importados. Última verificação às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const unitText = unitIds.length > 1 ? ` em ${unitIds.length} unidades` : "";
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText}. Última atualização às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
