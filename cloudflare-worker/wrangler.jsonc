@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "casa-gestao-ia",
+  "name": "house-gestao-ia",
   "main": "src/index.js",
   "compatibility_date": "2026-08-14",
   "workers_dev": true,
