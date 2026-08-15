@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-status-diagnostics-v4";
+const WORKER_VERSION = "2026-08-15-restaurant-channel-v5";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -153,7 +153,7 @@ function getTakeatCredentials(unitId, env) {
 
 async function getTakeatToken(unitId, env) {
   const cached = takeatTokens.get(unitId);
-  if (cached?.expiresAt > Date.now()) return cached.token;
+  if (cached?.expiresAt > Date.now()) return cached;
   const credentials = getTakeatCredentials(unitId, env);
   if (!credentials) throw new Error("Takeat ainda não configurada para esta unidade.");
   const response = await fetch(TAKEAT_AUTH_URL, {
@@ -164,8 +164,17 @@ async function getTakeatToken(unitId, env) {
   if (!response.ok) throw new Error("Credenciais Takeat recusadas para esta unidade.");
   const data = await response.json();
   if (!data.token) throw new Error("A Takeat não retornou um token válido.");
-  takeatTokens.set(unitId, { token: data.token, expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000 });
-  return data.token;
+  const authenticated = {
+    token: data.token,
+    expiresAt: Date.now() + 14 * 24 * 60 * 60 * 1000,
+    restaurant: {
+      id: data.restaurant?.id ?? null,
+      name: String(data.restaurant?.name || ""),
+      fantasyName: String(data.restaurant?.fantasy_name || ""),
+    },
+  };
+  takeatTokens.set(unitId, authenticated);
+  return authenticated;
 }
 
 function collectChannels(session) {
@@ -179,7 +188,7 @@ function collectChannels(session) {
 }
 
 function channelRules(unitId, env) {
-  const defaults = { ifood: ["ifood"], delivery: ["delivery", "online", "site", "whatsapp", "takeat", "app"] };
+  const defaults = { ifood: ["ifood"], delivery: ["delivery", "site", "web", "whatsapp", "delivery_proprio"] };
   if (!env.TAKEAT_CHANNEL_MAP_JSON) return defaults;
   try {
     const configured = JSON.parse(env.TAKEAT_CHANNEL_MAP_JSON)[unitId] || {};
@@ -195,9 +204,13 @@ function channelRules(unitId, env) {
 function classifySession(session, rules) {
   const channels = collectChannels(session);
   const matches = (terms) => channels.some((channel) => terms.some((term) => channel.includes(term)));
-  if (matches(rules.ifood)) return { key: "ifood", channels };
   const tableType = String(session.table?.table_type || "").toLowerCase();
-  if (session.is_delivery || session.with_withdrawal || tableType.includes("delivery") || matches(rules.delivery)) return { key: "delivery", channels };
+  const deliveryBy = String(session.delivery_by || "").toLowerCase();
+  const ifoodSignal = tableType.includes("ifood") || deliveryBy.includes("ifood") || matches(rules.ifood);
+  if (ifoodSignal) return { key: "ifood", channels };
+  if (session.is_delivery || session.with_withdrawal || tableType.includes("delivery") || tableType.includes("withdraw") || tableType.includes("retirada")) return { key: "delivery", channels };
+  if (["table", "mesa", "counter", "balcao", "balcão"].some((term) => tableType.includes(term))) return { key: "salao", channels };
+  if (matches(rules.delivery)) return { key: "delivery", channels };
   return { key: "salao", channels };
 }
 
@@ -255,10 +268,10 @@ async function syncTakeat(request, env, origin) {
     if (!UNIT_SECRET_NAMES[unitId]) return json({ error: "Unidade inválida." }, 400, origin);
     if (profile.role !== "admin" && profile.unitId !== unitId) return json({ error: "Você não pode acessar a Takeat de outra unidade." }, 403, origin);
     const period = takeatPeriod(date);
-    const token = await getTakeatToken(unitId, env);
+    const takeatAuth = await getTakeatToken(unitId, env);
     let sessions;
     try {
-      sessions = await fetchTakeatRange(token, period.start, period.end);
+      sessions = await fetchTakeatRange(takeatAuth.token, period.start, period.end);
     } catch (error) {
       if (error instanceof Error && error.message === "TAKEAT_TOKEN_EXPIRED") {
         takeatTokens.delete(unitId);
@@ -295,7 +308,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, channels: [...observedChannels].sort(), statuses: observedStatuses, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, channels: [...observedChannels].sort(), statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
