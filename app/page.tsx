@@ -314,13 +314,22 @@ export default function HomePage() {
         setRole(profile.role); setProfile({ name: profile.name || user.email || "Usuário House", email: profile.email || user.email || "" });
         const monthPrefix = isoDate(currentDate).slice(0, 7);
         const permitted = profile.role === "admin" ? UNITS.map((item) => item.id) : profile.unitId ? [profile.unitId] : [];
-        const goalOverrides = await loadUnitGoals(permitted);
+        const [goalOverrides, storedCmv] = await Promise.all([
+          loadUnitGoals(permitted).catch((error) => {
+            console.warn("Metas personalizadas indisponíveis; usando configuração padrão.", error);
+            return [];
+          }),
+          loadCmvEntries(permitted).catch((error) => {
+            console.warn("Histórico de CMV indisponível; o restante do painel continuará funcionando.", error);
+            return [];
+          }),
+        ]);
         const effectiveUnits = UNITS.map((base) => {
           const override = goalOverrides.find((item) => item.id === base.id);
           return override ? { ...base, ...override } : base;
         });
         setUnits(effectiveUnits);
-        setCmvRecords(await loadCmvEntries(permitted));
+        setCmvRecords(storedCmv);
         if (profile.role === "admin") {
           const adminDefaultUnit = effectiveUnits.find((item) => item.id === "house190-teixeira") || effectiveUnits[0];
           setUnit(adminDefaultUnit);

@@ -49,6 +49,7 @@ export function CmvScreen({ unit, units, sales, records, role, onSave }: {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [month, setMonth] = useState(initialWeek.weekEnd.slice(0, 7));
   const [ai, setAi] = useState<AIResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -77,6 +78,7 @@ export function CmvScreen({ unit, units, sales, records, role, onSave }: {
       packaging: existing.packaging,
     } : emptyCmvCosts());
     setSaved(false);
+    setSaveError("");
     setAi(null);
   };
 
@@ -87,28 +89,35 @@ export function CmvScreen({ unit, units, sales, records, role, onSave }: {
     setEditingId(record.id);
     setCosts({ rawMaterials: record.rawMaterials, productionCenter: record.productionCenter, beverages: record.beverages, packaging: record.packaging });
     setSaved(false);
+    setSaveError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const save = async () => {
     setSaving(true);
-    const existing = records.find((record) => record.id === editingId);
-    await onSave({
-      id: `${unit.id}_${period.weekStart}`,
-      unitId: unit.id,
-      weekStart: period.weekStart,
-      weekEnd: period.weekEnd,
-      referenceMonth: period.weekEnd.slice(0, 7),
-      revenue,
-      targetPercent: unit.cmvTargetPercent,
-      ...costs,
-      createdAt: existing?.createdAt || new Date().toISOString(),
-      createdBy: existing?.createdBy,
-      updatedAt: new Date().toISOString(),
-    });
-    setEditingId(`${unit.id}_${period.weekStart}`);
-    setSaving(false);
-    setSaved(true);
+    setSaveError("");
+    try {
+      const existing = records.find((record) => record.id === editingId);
+      await onSave({
+        id: `${unit.id}_${period.weekStart}`,
+        unitId: unit.id,
+        weekStart: period.weekStart,
+        weekEnd: period.weekEnd,
+        referenceMonth: period.weekEnd.slice(0, 7),
+        revenue,
+        targetPercent: unit.cmvTargetPercent,
+        ...costs,
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        createdBy: existing?.createdBy,
+        updatedAt: new Date().toISOString(),
+      });
+      setEditingId(`${unit.id}_${period.weekStart}`);
+      setSaved(true);
+    } catch {
+      setSaveError("Não foi possível salvar o CMV. Atualize a página e tente novamente; se persistir, as permissões do banco precisam ser publicadas.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const analyze = async () => {
@@ -141,7 +150,7 @@ export function CmvScreen({ unit, units, sales, records, role, onSave }: {
     <section className="cmv-workspace">
       <div className="cmv-cost-panel surface-card"><div className="section-heading"><div><span className="eyebrow">Lançamento de custos</span><h2>{editingId ? "Editar conferência" : "Nova conferência"}</h2></div>{editingId && <span className="status-badge status-warning"><ClipboardEdit size={14} /> Edição</span>}</div>
         <div className="cmv-cost-grid">{costFields.map((field) => <label key={field.key}><span className="cmv-cost-icon">{field.icon}</span><span><b>{field.label}</b><small>Gasto nos 7 dias</small></span><div><i>R$</i><input min="0" step="0.01" inputMode="decimal" type="number" value={costs[field.key] || ""} placeholder="0,00" onChange={(event) => { setCosts({ ...costs, [field.key]: Math.max(Number(event.target.value), 0) }); setSaved(false); }} /></div></label>)}</div>
-        <div className="cmv-save-row"><div><span>Custo total</span><strong>{formatMoney(metrics.totalCost)}</strong></div><button className="primary-button" onClick={() => void save()} disabled={saving || revenue <= 0}>{saving ? "Salvando..." : <><Save size={17} /> {editingId ? "Salvar alterações" : "Salvar conferência"}</>}</button></div>{saved && <p className="cmv-saved"><CheckCircle2 size={16} /> Conferência salva. Você pode editá-la a qualquer momento.</p>}
+        <div className="cmv-save-row"><div><span>Custo total</span><strong>{formatMoney(metrics.totalCost)}</strong></div><button className="primary-button" onClick={() => void save()} disabled={saving || revenue <= 0}>{saving ? "Salvando..." : <><Save size={17} /> {editingId ? "Salvar alterações" : "Salvar conferência"}</>}</button></div>{saved && <p className="cmv-saved"><CheckCircle2 size={16} /> Conferência salva. Você pode editá-la a qualquer momento.</p>}{saveError && <p className="sync-error">{saveError}</p>}
       </div>
 
       <aside className="cmv-result-card surface-card"><CmvRing percentage={metrics.percentage} target={unit.cmvTargetPercent} /><div className={`cmv-verdict cmv-${metrics.status}`}><strong>{metrics.status === "healthy" ? "CMV dentro da meta" : metrics.status === "attention" ? "CMV pede atenção" : metrics.status === "critical" ? "CMV acima do limite" : "Aguardando faturamento"}</strong><span>{metrics.variancePoints <= 0 ? `${formatPercent(Math.abs(metrics.variancePoints))} abaixo do limite` : `${formatPercent(metrics.variancePoints)} acima do limite`}</span></div><div className="cmv-breakdown">{costFields.map((field) => { const value = costs[field.key]; const share = metrics.totalCost ? (value / metrics.totalCost) * 100 : 0; return <div key={field.key}><span>{field.label}<b>{formatPercent(share)}</b></span><i><em style={{ width: `${share}%` }} /></i></div>; })}</div><button className="ai-primary cmv-ai-button" onClick={() => void analyze()} disabled={aiLoading || metrics.totalCost <= 0}><Sparkles size={17} /> {aiLoading ? "Analisando custos..." : "Analisar com House IA"}</button></aside>
