@@ -6,9 +6,11 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-report-reconciliation-v21";
+const TAKEAT_REPORT_API_URL = "https://backend-pdv-2.takeat.app";
+const WORKER_VERSION = "2026-08-15-official-general-cards-v22";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
+const takeatReportTokens = new Map();
 
 const UNIT_SECRET_NAMES = {
   "house190-teixeira": ["TAKEAT_HOUSE190_TEIXEIRA_EMAIL", "TAKEAT_HOUSE190_TEIXEIRA_PASSWORD"],
@@ -177,6 +179,75 @@ async function getTakeatToken(unitId, env) {
   return authenticated;
 }
 
+async function getTakeatReportToken(unitId, env, forceRefresh = false) {
+  if (!forceRefresh) {
+    const cached = takeatReportTokens.get(unitId);
+    if (cached?.expiresAt > Date.now()) return cached;
+  }
+
+  const credentials = getTakeatCredentials(unitId, env);
+  if (!credentials) throw new Error("Takeat ainda não configurada para esta unidade.");
+
+  const response = await fetch(`${TAKEAT_REPORT_API_URL}/public/sessions/restaurants`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credentials),
+  });
+  if (!response.ok) throw new Error("Credenciais da Área do Gestor Takeat recusadas para esta unidade.");
+
+  const data = await response.json();
+  const user = data?.user || {};
+  const token = user?.token || data?.token;
+  if (!token) throw new Error("A Área do Gestor Takeat não retornou um token válido.");
+
+  const source = user?.restaurant || data?.restaurant || user;
+  const authenticated = {
+    token,
+    expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+    restaurant: {
+      id: source?.id ?? source?.restaurant_id ?? null,
+      name: String(source?.name || source?.restaurant_name || ""),
+      fantasyName: String(source?.fantasy_name || source?.fantasyName || ""),
+    },
+  };
+  takeatReportTokens.set(unitId, authenticated);
+  return authenticated;
+}
+
+function takeatReportPeriod(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Data inválida.");
+  const startAt = new Date(`${date}T00:00:00.000-03:00`);
+  if (Number.isNaN(startAt.getTime())) throw new Error("Data inválida.");
+  const endAt = new Date(startAt.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start: startAt.toISOString(), end: endAt.toISOString() };
+}
+
+function takeatNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+  const normalized = value.includes(",")
+    ? value.replace(/\./g, "").replace(",", ".")
+    : value;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function fetchTakeatGeneralCards(token, date) {
+  const period = takeatReportPeriod(date);
+  const url = new URL(`${TAKEAT_REPORT_API_URL}/restaurants/v2/reports/general-cards`);
+  url.searchParams.set("start_date", period.start);
+  url.searchParams.set("end_date", period.end);
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (response.status === 401) throw new Error("TAKEAT_REPORT_TOKEN_EXPIRED");
+  if (!response.ok) throw new Error(`O relatório oficial da Takeat não respondeu (HTTP ${response.status}).`);
+
+  const cards = await response.json();
+  if (!cards?.payment_without_tax || typeof cards.payment_without_tax !== "object") {
+    throw new Error("A Takeat retornou o relatório oficial sem os valores de faturamento.");
+  }
+  return cards;
+}
+
 function collectChannels(session) {
   const channels = [];
   for (const bill of session.bills || []) {
@@ -269,6 +340,84 @@ async function fetchTakeatRange(token, start, end, depth = 0) {
 }
 
 async function syncTakeat(request, env, origin) {
+  try {
+    const auth = await verifyFirebaseToken(request, env);
+    const profile = await loadFirebaseProfile(auth);
+    if (!profile.active || !["admin", "manager"].includes(profile.role)) {
+      return json({ error: "Usuário sem permissão para sincronizar." }, 403, origin);
+    }
+
+    const body = await request.json();
+    const unitId = String(body?.unitId || "");
+    const date = String(body?.date || "");
+    if (!UNIT_SECRET_NAMES[unitId]) return json({ error: "Unidade inválida." }, 400, origin);
+    if (profile.role !== "admin" && profile.unitId !== unitId) {
+      return json({ error: "Você não pode acessar a Takeat de outra unidade." }, 403, origin);
+    }
+
+    let takeatAuth = await getTakeatReportToken(unitId, env);
+    let cards;
+    try {
+      cards = await fetchTakeatGeneralCards(takeatAuth.token, date);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "TAKEAT_REPORT_TOKEN_EXPIRED") throw error;
+      takeatReportTokens.delete(unitId);
+      takeatAuth = await getTakeatReportToken(unitId, env, true);
+      cards = await fetchTakeatGeneralCards(takeatAuth.token, date);
+    }
+
+    // Estes são exatamente os campos usados nos cards de Faturamento da
+    // Área do Gestor Takeat. Não reconstruímos valores a partir de comandas,
+    // pagamentos, taxas, descontos ou status.
+    const revenue = cards.payment_without_tax;
+    const counting = cards.counting || {};
+    const salao = takeatNumber(revenue.balcony) + takeatNumber(revenue.table);
+    const delivery = takeatNumber(revenue.delivery);
+    const ifood = takeatNumber(revenue.ifood);
+    const classifiedSessions = {
+      salao: takeatNumber(counting.balcony) + takeatNumber(counting.table),
+      delivery: takeatNumber(counting.delivery),
+      ifood: takeatNumber(counting.ifood),
+    };
+    const sessions = classifiedSessions.salao + classifiedSessions.delivery + classifiedSessions.ifood;
+    const cents = (value) => Math.round(value * 100) / 100;
+
+    return json({
+      id: `${unitId}_${date}`,
+      unitId,
+      date,
+      salao: cents(salao),
+      delivery: cents(delivery),
+      ifood: cents(ifood),
+      deliveryDetails: {},
+      ifoodDetails: {},
+      source: "takeat",
+      createdBy: auth.uid,
+      updatedAt: new Date().toISOString(),
+      sourceSummary: {
+        sessions,
+        fetched: sessions,
+        ignored: 0,
+        ignoredReasons: { open: 0, canceled: 0, withoutValue: 0 },
+        revenueBasis: "payment_without_tax",
+        classifiedSessions,
+        channels: ["balcony", "table", "delivery", "ifood"],
+        officialCards: {
+          paymentWithoutTax: revenue,
+          counting,
+        },
+        restaurant: takeatAuth.restaurant,
+        workerVersion: WORKER_VERSION,
+      },
+    }, 200, origin);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar o relatório oficial da Takeat." }, 500, origin);
+  }
+}
+
+// Mantido temporariamente apenas como referência de auditoria. O fluxo de
+// produção usa exclusivamente syncTakeat e o relatório oficial general-cards.
+async function syncTakeatLegacy(request, env, origin) {
   try {
     const auth = await verifyFirebaseToken(request, env);
     const profile = await loadFirebaseProfile(auth);
