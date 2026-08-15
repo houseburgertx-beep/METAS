@@ -206,6 +206,11 @@ export default function HomePage() {
       delivery: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
       ifood: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
     };
+    const ignoredFinancials = {
+      canceled: { salao: { count: 0, payment: 0, product: 0 }, delivery: { count: 0, payment: 0, product: 0 }, ifood: { count: 0, payment: 0, product: 0 } },
+      open: { salao: { count: 0, payment: 0, product: 0 }, delivery: { count: 0, payment: 0, product: 0 }, ifood: { count: 0, payment: 0, product: 0 } },
+      withoutValue: { salao: { count: 0, payment: 0, product: 0 }, delivery: { count: 0, payment: 0, product: 0 }, ifood: { count: 0, payment: 0, product: 0 } },
+    };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -254,6 +259,12 @@ export default function HomePage() {
                 adjustmentTotalsByChannel[channel][key] += summary?.adjustmentTotalsByChannel?.[channel]?.[key] || 0;
               });
               openServiceTotals[channel] += summary?.openServiceTotals?.[channel] || 0;
+              (["canceled", "open", "withoutValue"] as const).forEach((reason) => {
+                const source = summary?.ignoredFinancials?.[reason]?.[channel];
+                ignoredFinancials[reason][channel].count += source?.count || 0;
+                ignoredFinancials[reason][channel].payment += source?.payment || 0;
+                ignoredFinancials[reason][channel].product += source?.product || 0;
+              });
             });
             openProductTotals.salao += summary?.openProductTotals?.salao || 0;
             openProductTotals.delivery += summary?.openProductTotals?.delivery || 0;
@@ -298,7 +309,8 @@ export default function HomePage() {
     const openTotalsText = ` • Abertas com produtos: S ${formatMoney(openProductTotals.salao)} D ${formatMoney(openProductTotals.delivery)} I ${formatMoney(openProductTotals.ifood)} T ${formatMoney(openProductTotals.salao + openProductTotals.delivery + openProductTotals.ifood)}`;
     const auditMoney = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const channelAuditText = ` • Auditoria por canal: ${(["salao", "delivery", "ifood"] as const).map((channel) => { const a = adjustmentTotalsByChannel[channel]; const cashback = paymentMethodTotalsByChannel[channel]["Cashback Takeat"] || 0; const payment = basisTotals.payment[channel]; const reportCandidate = channel === "salao" ? payment - a.serviceDelta - cashback : a.totalDelivery; return `${channel} pagamento ${auditMoney(payment)}, total_delivery ${auditMoney(a.totalDelivery)}, candidato ${auditMoney(reportCandidate)}, serviço ${auditMoney(a.serviceDelta)}, cashback ${auditMoney(cashback)}, taxa entrega ${auditMoney(a.deliveryTax)}, desconto entrega ${auditMoney(a.deliveryFeeDiscount)}, desconto estabelecimento ${auditMoney(a.merchantDiscount)}, desconto total ${auditMoney(a.discountTotal)}, aberta produto ${auditMoney(openProductTotals[channel])}, aberta serviço ${auditMoney(openServiceTotals[channel])}`; }).join("; ")}`;
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${adjustmentText}${methodTotalsText}${openTotalsText}${channelAuditText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const ignoredAuditText = ` • Financeiro ignorado: ${(["canceled", "open", "withoutValue"] as const).map((reason) => `${reason} ${(["salao", "delivery", "ifood"] as const).map((channel) => { const item = ignoredFinancials[reason][channel]; return `${channel} ${item.count} pg ${auditMoney(item.payment)} prod ${auditMoney(item.product)}`; }).join(", ")}`).join("; ")}`;
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${adjustmentText}${methodTotalsText}${openTotalsText}${channelAuditText}${ignoredAuditText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
