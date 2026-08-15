@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-delivery-matrix-v11";
+const WORKER_VERSION = "2026-08-15-pdv-ifood-basis-v12";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -215,7 +215,9 @@ function classifySession(session, rules) {
   const physicalTable = ["table", "mesa", "counter", "balcao", "balcão", "balcony"].some((term) => tableType.includes(term));
   // Mesa, balcão e garçom digital são sempre faturamento de Salão.
   if (physicalTable) return { key: "salao", channels, paymentLabels };
-  const ifoodSignal = paymentIfood || normalize(tableType).includes("ifood") || normalize(deliveryBy).includes("ifood") || matches(rules.ifood);
+  const deliveryContext = Boolean(session.is_delivery) || tableType.includes("delivery");
+  const pdvDelivery = deliveryContext && channels.some((channel) => normalize(channel) === "pdv");
+  const ifoodSignal = paymentIfood || pdvDelivery || normalize(tableType).includes("ifood") || normalize(deliveryBy).includes("ifood") || matches(rules.ifood);
   if (ifoodSignal) return { key: "ifood", channels, paymentLabels };
   if (session.is_delivery || session.with_withdrawal || tableType.includes("delivery") || tableType.includes("withdraw") || tableType.includes("retirada")) return { key: "delivery", channels, paymentLabels };
   if (matches(rules.delivery)) return { key: "delivery", channels, paymentLabels };
@@ -293,6 +295,11 @@ async function syncTakeat(request, env, origin) {
     const observedDeliveryBy = new Set();
     const observedPaymentMethods = new Set();
     const deliverySignalStats = {};
+    const basisTotals = {
+      payment: { salao: 0, delivery: 0, ifood: 0 },
+      product: { salao: 0, delivery: 0, ifood: 0 },
+      service: { salao: 0, delivery: 0, ifood: 0 },
+    };
     const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
     const observedStatuses = {};
     let imported = 0, ignored = 0;
@@ -303,6 +310,7 @@ async function syncTakeat(request, env, origin) {
       observedStatuses[status] = (observedStatuses[status] || 0) + 1;
       const paymentValue = (session.payments || []).reduce((total, payment) => total + Number(payment.payment_value || 0), 0);
       const productValue = Number(session.total_price || 0);
+      const serviceValue = Number(session.total_service_price || 0);
       // A documentação da Takeat define payment_value como o valor que entrou
       // no faturamento, já descontado o troco. É a mesma base do relatório.
       const value = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
@@ -326,6 +334,9 @@ async function syncTakeat(request, env, origin) {
         deliverySignalStats[signalKey] = { count: current.count + 1, value: current.value + value };
       }
       totals[classification.key] += value;
+      basisTotals.payment[classification.key] += Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
+      basisTotals.product[classification.key] += Number.isFinite(productValue) && productValue > 0 ? productValue : paymentValue;
+      basisTotals.service[classification.key] += Number.isFinite(serviceValue) && serviceValue > 0 ? serviceValue : productValue;
       classifiedSessions[classification.key] += 1;
       imported += 1;
     }
@@ -342,7 +353,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), deliverySignalStats, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), deliverySignalStats, basisTotals, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
