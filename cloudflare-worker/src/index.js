@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-payment-channel-v10";
+const WORKER_VERSION = "2026-08-15-delivery-matrix-v11";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -292,6 +292,7 @@ async function syncTakeat(request, env, origin) {
     const observedTableTypes = new Set();
     const observedDeliveryBy = new Set();
     const observedPaymentMethods = new Set();
+    const deliverySignalStats = {};
     const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
     const observedStatuses = {};
     let imported = 0, ignored = 0;
@@ -315,6 +316,15 @@ async function syncTakeat(request, env, origin) {
       classification.paymentLabels.forEach((label) => observedPaymentMethods.add(label));
       if (session.table?.table_type) observedTableTypes.add(String(session.table.table_type));
       if (session.delivery_by) observedDeliveryBy.add(String(session.delivery_by));
+      const tableType = String(session.table?.table_type || "").toLowerCase();
+      const deliverySession = Boolean(session.is_delivery) || tableType.includes("delivery");
+      if (deliverySession) {
+        const channelKey = classification.channels.length ? [...classification.channels].sort().join("+") : "sem-canal";
+        const paymentKey = classification.paymentLabels.length ? [...new Set(classification.paymentLabels)].sort().join("+") : "sem-pagamento";
+        const signalKey = `${classification.key}|${channelKey}|${paymentKey}`;
+        const current = deliverySignalStats[signalKey] || { count: 0, value: 0 };
+        deliverySignalStats[signalKey] = { count: current.count + 1, value: current.value + value };
+      }
       totals[classification.key] += value;
       classifiedSessions[classification.key] += 1;
       imported += 1;
@@ -332,7 +342,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), deliverySignalStats, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
