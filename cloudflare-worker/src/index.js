@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-channel-adjustment-audit-v15";
+const WORKER_VERSION = "2026-08-15-delivery-total-audit-v16";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -306,9 +306,9 @@ async function syncTakeat(request, env, origin) {
     const openProductTotals = { salao: 0, delivery: 0, ifood: 0 };
     const openServiceTotals = { salao: 0, delivery: 0, ifood: 0 };
     const adjustmentTotalsByChannel = {
-      salao: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-      delivery: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-      ifood: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      salao: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      delivery: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      ifood: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
     };
     const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
     const observedStatuses = {};
@@ -368,6 +368,7 @@ async function syncTakeat(request, env, origin) {
       adjustmentTotals.serviceDelta += Math.max(0, (Number.isFinite(serviceValue) ? serviceValue : 0) - (Number.isFinite(productValue) ? productValue : 0));
       adjustmentTotals.paymentMinusProduct += (Number.isFinite(paymentValue) ? paymentValue : 0) - (Number.isFinite(productValue) ? productValue : 0);
       const channelAdjustments = adjustmentTotalsByChannel[classification.key];
+      channelAdjustments.totalDelivery += Number(session.total_delivery_price || 0) || 0;
       channelAdjustments.deliveryTax += Number(session.delivery_tax_price || 0) || 0;
       channelAdjustments.deliveryFeeDiscount += Number(session.delivery_fee_discount || 0) || 0;
       channelAdjustments.merchantDiscount += Number(session.merchant_discount || 0) || 0;
