@@ -196,6 +196,7 @@ export default function HomePage() {
       product: { salao: 0, delivery: 0, ifood: 0 },
       service: { salao: 0, delivery: 0, ifood: 0 },
     };
+    const adjustmentTotals = { deliveryTax: 0, totalDelivery: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0, paymentMinusProduct: 0 };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -229,6 +230,9 @@ export default function HomePage() {
               basisTotals[basis].salao += summary?.basisTotals?.[basis]?.salao || 0;
               basisTotals[basis].delivery += summary?.basisTotals?.[basis]?.delivery || 0;
               basisTotals[basis].ifood += summary?.basisTotals?.[basis]?.ifood || 0;
+            });
+            (Object.keys(adjustmentTotals) as Array<keyof typeof adjustmentTotals>).forEach((key) => {
+              adjustmentTotals[key] += summary?.adjustmentTotals?.[key] || 0;
             });
             workerVersion = summary?.workerVersion || workerVersion;
             const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
@@ -265,7 +269,8 @@ export default function HomePage() {
       ? ` • Matriz entrega: ${Object.entries(deliverySignalStats).sort(([a], [b]) => a.localeCompare(b)).map(([key, stat]) => `${key}=${stat.count}/${formatMoney(stat.value)}`).join("; ")}`
       : "";
     const basisText = ` • Comparação de bases: pagamento S ${formatMoney(basisTotals.payment.salao)} D ${formatMoney(basisTotals.payment.delivery)} I ${formatMoney(basisTotals.payment.ifood)} T ${formatMoney(basisTotals.payment.salao + basisTotals.payment.delivery + basisTotals.payment.ifood)}; total_price S ${formatMoney(basisTotals.product.salao)} D ${formatMoney(basisTotals.product.delivery)} I ${formatMoney(basisTotals.product.ifood)} T ${formatMoney(basisTotals.product.salao + basisTotals.product.delivery + basisTotals.product.ifood)}; serviço S ${formatMoney(basisTotals.service.salao)} D ${formatMoney(basisTotals.service.delivery)} I ${formatMoney(basisTotals.service.ifood)} T ${formatMoney(basisTotals.service.salao + basisTotals.service.delivery + basisTotals.service.ifood)}`;
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const adjustmentText = ` • Ajustes API: taxa entrega ${formatMoney(adjustmentTotals.deliveryTax)}, total entrega ${formatMoney(adjustmentTotals.totalDelivery)}, desconto entrega ${formatMoney(adjustmentTotals.deliveryFeeDiscount)}, desconto estabelecimento ${formatMoney(adjustmentTotals.merchantDiscount)}, desconto total ${formatMoney(adjustmentTotals.discountTotal)}, serviço ${formatMoney(adjustmentTotals.serviceDelta)}, pagamento-produto ${formatMoney(adjustmentTotals.paymentMinusProduct)}`;
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${adjustmentText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
