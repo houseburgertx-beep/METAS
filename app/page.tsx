@@ -229,7 +229,7 @@ export default function HomePage() {
     const versionText = workerVersion ? ` • Integrador ${workerVersion}` : " • Integrador sem identificação";
     const restaurantText = authenticatedRestaurants.size ? ` • Restaurante API: ${[...authenticatedRestaurants].join(", ")}` : "";
     const ignoredText = ignoredSessions ? ` (${ignoredReasons.open} abertas, ${ignoredReasons.canceled} canceladas, ${ignoredReasons.withoutValue} sem valor)` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
