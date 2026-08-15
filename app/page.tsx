@@ -1,5 +1,7 @@
 "use client";
 
+// A Takeat é a fonte automática dos faturamentos diários por unidade.
+
 import {
   Activity, BarChart3, Bot, Building2, CalendarDays, ChevronDown, ChevronRight,
   CircleDollarSign, History, Home, Lightbulb, LogOut, Moon, MoreHorizontal,
