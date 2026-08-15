@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-payment-method-audit-v14";
+const WORKER_VERSION = "2026-08-15-channel-adjustment-audit-v15";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -302,7 +302,14 @@ async function syncTakeat(request, env, origin) {
     };
     const adjustmentTotals = { deliveryTax: 0, totalDelivery: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0, paymentMinusProduct: 0 };
     const paymentMethodTotals = {};
+    const paymentMethodTotalsByChannel = { salao: {}, delivery: {}, ifood: {} };
     const openProductTotals = { salao: 0, delivery: 0, ifood: 0 };
+    const openServiceTotals = { salao: 0, delivery: 0, ifood: 0 };
+    const adjustmentTotalsByChannel = {
+      salao: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      delivery: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      ifood: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+    };
     const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
     const observedStatuses = {};
     let imported = 0, ignored = 0;
@@ -317,21 +324,24 @@ async function syncTakeat(request, env, origin) {
       // A documentação da Takeat define payment_value como o valor que entrou
       // no faturamento, já descontado o troco. É a mesma base do relatório.
       const value = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
+      const classification = classifySession(session, rules);
       const canceled = status.includes("cancel") || Boolean(session.delivery_canceled_at);
       const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
       if (canceled) { ignored += 1; ignoredReasons.canceled += 1; continue; }
       if (!settled) {
         const openClassification = classifySession(session, rules);
         if (Number.isFinite(productValue) && productValue > 0) openProductTotals[openClassification.key] += productValue;
+        if (Number.isFinite(serviceValue) && serviceValue > 0) openServiceTotals[openClassification.key] += serviceValue;
         ignored += 1; ignoredReasons.open += 1; continue;
       }
       if (!Number.isFinite(value) || value <= 0) { ignored += 1; ignoredReasons.withoutValue += 1; continue; }
-      const classification = classifySession(session, rules);
       for (const payment of session.payments || []) {
         const method = payment?.payment_method || {};
         const methodName = String(method.name || method.keyword || method.method || "não informado").trim();
         const amount = Number(payment.payment_value || 0) || 0;
         paymentMethodTotals[methodName] = (paymentMethodTotals[methodName] || 0) + amount;
+        const channelMethods = paymentMethodTotalsByChannel[classification.key];
+        channelMethods[methodName] = (channelMethods[methodName] || 0) + amount;
       }
       classification.channels.forEach((channel) => observedChannels.add(channel));
       classification.paymentLabels.forEach((label) => observedPaymentMethods.add(label));
@@ -357,6 +367,12 @@ async function syncTakeat(request, env, origin) {
       adjustmentTotals.discountTotal += Number(session.discount_total || 0) || 0;
       adjustmentTotals.serviceDelta += Math.max(0, (Number.isFinite(serviceValue) ? serviceValue : 0) - (Number.isFinite(productValue) ? productValue : 0));
       adjustmentTotals.paymentMinusProduct += (Number.isFinite(paymentValue) ? paymentValue : 0) - (Number.isFinite(productValue) ? productValue : 0);
+      const channelAdjustments = adjustmentTotalsByChannel[classification.key];
+      channelAdjustments.deliveryTax += Number(session.delivery_tax_price || 0) || 0;
+      channelAdjustments.deliveryFeeDiscount += Number(session.delivery_fee_discount || 0) || 0;
+      channelAdjustments.merchantDiscount += Number(session.merchant_discount || 0) || 0;
+      channelAdjustments.discountTotal += Number(session.discount_total || 0) || 0;
+      channelAdjustments.serviceDelta += Math.max(0, (Number.isFinite(serviceValue) ? serviceValue : 0) - (Number.isFinite(productValue) ? productValue : 0));
       classifiedSessions[classification.key] += 1;
       imported += 1;
     }
@@ -373,7 +389,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), paymentMethodTotals, openProductTotals, deliverySignalStats, basisTotals, adjustmentTotals, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), paymentMethodTotals, paymentMethodTotalsByChannel, openProductTotals, openServiceTotals, adjustmentTotalsByChannel, deliverySignalStats, basisTotals, adjustmentTotals, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
