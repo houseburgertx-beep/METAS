@@ -202,9 +202,9 @@ export default function HomePage() {
     const openProductTotals = { salao: 0, delivery: 0, ifood: 0 };
     const openServiceTotals = { salao: 0, delivery: 0, ifood: 0 };
     const adjustmentTotalsByChannel = {
-      salao: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-      delivery: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-      ifood: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      salao: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      delivery: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      ifood: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
     };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
@@ -297,7 +297,7 @@ export default function HomePage() {
     const methodTotalsText = ` • Valores por pagamento: ${Object.entries(paymentMethodTotals).sort(([a], [b]) => a.localeCompare(b)).map(([method, value]) => `${method} ${formatMoney(value)}`).join(", ")}`;
     const openTotalsText = ` • Abertas com produtos: S ${formatMoney(openProductTotals.salao)} D ${formatMoney(openProductTotals.delivery)} I ${formatMoney(openProductTotals.ifood)} T ${formatMoney(openProductTotals.salao + openProductTotals.delivery + openProductTotals.ifood)}`;
     const auditMoney = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const channelAuditText = ` • Auditoria por canal: ${(["salao", "delivery", "ifood"] as const).map((channel) => { const a = adjustmentTotalsByChannel[channel]; const cashback = paymentMethodTotalsByChannel[channel]["Cashback Takeat"] || 0; return `${channel} serviço ${auditMoney(a.serviceDelta)}, cashback ${auditMoney(cashback)}, taxa entrega ${auditMoney(a.deliveryTax)}, desconto entrega ${auditMoney(a.deliveryFeeDiscount)}, desconto estabelecimento ${auditMoney(a.merchantDiscount)}, desconto total ${auditMoney(a.discountTotal)}, aberta produto ${auditMoney(openProductTotals[channel])}, aberta serviço ${auditMoney(openServiceTotals[channel])}`; }).join("; ")}`;
+    const channelAuditText = ` • Auditoria por canal: ${(["salao", "delivery", "ifood"] as const).map((channel) => { const a = adjustmentTotalsByChannel[channel]; const cashback = paymentMethodTotalsByChannel[channel]["Cashback Takeat"] || 0; const payment = basisTotals.payment[channel]; const reportCandidate = channel === "salao" ? payment - a.serviceDelta - cashback : a.totalDelivery; return `${channel} pagamento ${auditMoney(payment)}, total_delivery ${auditMoney(a.totalDelivery)}, candidato ${auditMoney(reportCandidate)}, serviço ${auditMoney(a.serviceDelta)}, cashback ${auditMoney(cashback)}, taxa entrega ${auditMoney(a.deliveryTax)}, desconto entrega ${auditMoney(a.deliveryFeeDiscount)}, desconto estabelecimento ${auditMoney(a.merchantDiscount)}, desconto total ${auditMoney(a.discountTotal)}, aberta produto ${auditMoney(openProductTotals[channel])}, aberta serviço ${auditMoney(openServiceTotals[channel])}`; }).join("; ")}`;
     setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${adjustmentText}${methodTotalsText}${openTotalsText}${channelAuditText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
