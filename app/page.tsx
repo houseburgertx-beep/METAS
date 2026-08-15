@@ -191,6 +191,11 @@ export default function HomePage() {
     const observedDeliveryBy = new Set<string>();
     const observedPaymentMethods = new Set<string>();
     const deliverySignalStats: Record<string, { count: number; value: number }> = {};
+    const basisTotals = {
+      payment: { salao: 0, delivery: 0, ifood: 0 },
+      product: { salao: 0, delivery: 0, ifood: 0 },
+      service: { salao: 0, delivery: 0, ifood: 0 },
+    };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -219,6 +224,11 @@ export default function HomePage() {
             Object.entries(summary?.deliverySignalStats || {}).forEach(([key, stat]) => {
               const current = deliverySignalStats[key] || { count: 0, value: 0 };
               deliverySignalStats[key] = { count: current.count + (stat.count || 0), value: current.value + (stat.value || 0) };
+            });
+            (["payment", "product", "service"] as const).forEach((basis) => {
+              basisTotals[basis].salao += summary?.basisTotals?.[basis]?.salao || 0;
+              basisTotals[basis].delivery += summary?.basisTotals?.[basis]?.delivery || 0;
+              basisTotals[basis].ifood += summary?.basisTotals?.[basis]?.ifood || 0;
             });
             workerVersion = summary?.workerVersion || workerVersion;
             const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
@@ -254,7 +264,8 @@ export default function HomePage() {
     const deliveryMatrixText = Object.keys(deliverySignalStats).length
       ? ` • Matriz entrega: ${Object.entries(deliverySignalStats).sort(([a], [b]) => a.localeCompare(b)).map(([key, stat]) => `${key}=${stat.count}/${formatMoney(stat.value)}`).join("; ")}`
       : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const basisText = ` • Comparação de bases: pagamento S ${formatMoney(basisTotals.payment.salao)} D ${formatMoney(basisTotals.payment.delivery)} I ${formatMoney(basisTotals.payment.ifood)} T ${formatMoney(basisTotals.payment.salao + basisTotals.payment.delivery + basisTotals.payment.ifood)}; total_price S ${formatMoney(basisTotals.product.salao)} D ${formatMoney(basisTotals.product.delivery)} I ${formatMoney(basisTotals.product.ifood)} T ${formatMoney(basisTotals.product.salao + basisTotals.product.delivery + basisTotals.product.ifood)}; serviço S ${formatMoney(basisTotals.service.salao)} D ${formatMoney(basisTotals.service.delivery)} I ${formatMoney(basisTotals.service.ifood)} T ${formatMoney(basisTotals.service.salao + basisTotals.service.delivery + basisTotals.service.ifood)}`;
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
