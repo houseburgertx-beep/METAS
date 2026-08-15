@@ -24,6 +24,7 @@ export type TakeatSyncResult = SalesEntry & {
     classifiedSessions?: { salao?: number; delivery?: number; ifood?: number };
     statuses?: Record<string, number>;
     ignoredReasons?: { open?: number; canceled?: number; withoutValue?: number };
+    ignoredFinancials?: Record<"canceled" | "open" | "withoutValue", Record<"salao" | "delivery" | "ifood", { count?: number; payment?: number; product?: number }>>;
     revenueBasis?: "payment_value" | "total_price";
     restaurant?: { id: string | number | null; name: string; fantasyName: string };
     workerVersion?: string;
