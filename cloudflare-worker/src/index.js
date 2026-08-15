@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-financial-cancellations-v20";
+const WORKER_VERSION = "2026-08-15-report-reconciliation-v21";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -328,9 +328,10 @@ async function syncTakeat(request, env, origin) {
       const serviceValue = Number(session.total_service_price || 0);
       const deliveryFinalValue = Number(session.total_delivery_price || 0);
       const statusCanceled = status.includes("cancel");
+      const hasClosingMarker = Boolean(session.completed_at) || Boolean(session.end_time);
       const canceledFinancialValue = Number.isFinite(paymentValue) && paymentValue > 0
         ? paymentValue
-        : (Number.isFinite(deliveryFinalValue) && deliveryFinalValue > 0 ? deliveryFinalValue : 0);
+        : (hasClosingMarker && Number.isFinite(deliveryFinalValue) && deliveryFinalValue > 0 ? deliveryFinalValue : 0);
       // A documentação da Takeat define payment_value como o valor que entrou
       // no faturamento, já descontado o troco. É a mesma base do relatório.
       // Em sessões posteriormente canceladas, porém já consolidadas no relatório
@@ -379,9 +380,14 @@ async function syncTakeat(request, env, origin) {
         return total + (label.includes("cashback") ? (Number(payment.payment_value || 0) || 0) : 0);
       }, 0);
       const serviceDelta = Math.max(0, (Number.isFinite(serviceValue) ? serviceValue : 0) - (Number.isFinite(productValue) ? productValue : 0));
+      // A configuração financeira varia por restaurante. Em algumas unidades
+      // payment_value inclui a taxa de serviço; em outras ele já vem líquido.
+      // Retiramos somente a parcela de serviço realmente incorporada ao
+      // pagamento, evitando descontar a mesma taxa duas vezes.
+      const serviceIncludedInPayment = Math.min(serviceDelta, Math.max(0, rawValue - productValue));
       // Salão no relatório não considera taxa de serviço nem Cashback Takeat.
       // Delivery e iFood usam o pagamento efetivamente recebido.
-      const value = classification.key === "salao" ? Math.max(0, rawValue - serviceDelta - cashbackValue) : rawValue;
+      const value = classification.key === "salao" ? Math.max(0, rawValue - serviceIncludedInPayment - cashbackValue) : rawValue;
       classification.channels.forEach((channel) => observedChannels.add(channel));
       classification.paymentLabels.forEach((label) => observedPaymentMethods.add(label));
       if (session.table?.table_type) observedTableTypes.add(String(session.table.table_type));
