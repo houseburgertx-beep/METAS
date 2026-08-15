@@ -14,6 +14,7 @@ export type TakeatSyncResult = SalesEntry & {
     deliveryBy?: string[];
     paymentMethods?: string[];
     deliverySignalStats?: Record<string, { count?: number; value?: number }>;
+    basisTotals?: Record<"payment" | "product" | "service", { salao?: number; delivery?: number; ifood?: number }>;
     classifiedSessions?: { salao?: number; delivery?: number; ifood?: number };
     statuses?: Record<string, number>;
     ignoredReasons?: { open?: number; canceled?: number; withoutValue?: number };
