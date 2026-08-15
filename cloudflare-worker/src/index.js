@@ -6,6 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
+const WORKER_VERSION = "2026-08-15-full-range-v3";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -290,7 +291,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, channels: [...observedChannels].sort() },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, channels: [...observedChannels].sort(), workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
@@ -330,7 +331,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
     if (!ALLOWED_ORIGINS.has(origin) && origin) return json({ error: "Origem não autorizada" }, 403, origin);
     const url = new URL(request.url);
-    if (url.pathname === "/health") return json({ ok: true, service: "house-gestao", takeat: true }, 200, origin);
+    if (url.pathname === "/health") return json({ ok: true, service: "house-gestao", takeat: true, version: WORKER_VERSION }, 200, origin);
     if (url.pathname === "/takeat/sync" && request.method === "POST") return syncTakeat(request, env, origin);
     if (url.pathname === "/analyze" && request.method === "POST") return analyzePerformance(request, env, origin);
     return json({ error: "Rota não encontrada" }, 404, origin);
