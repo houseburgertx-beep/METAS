@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-full-range-v3";
+const WORKER_VERSION = "2026-08-15-status-diagnostics-v4";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
