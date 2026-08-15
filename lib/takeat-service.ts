@@ -12,6 +12,7 @@ export type TakeatSyncResult = SalesEntry & {
     channels: string[];
     statuses?: Record<string, number>;
     ignoredReasons?: { open?: number; canceled?: number; withoutValue?: number };
+    revenueBasis?: "payment_value" | "total_price";
     restaurant?: { id: string | number | null; name: string; fantasyName: string };
     workerVersion?: string;
   };
