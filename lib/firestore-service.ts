@@ -13,7 +13,7 @@ import type { SalesEntry } from "./types";
 export async function loadUserProfile(uid: string) {
   if (!db) return null;
   const snapshot = await getDoc(doc(db, "users", uid));
-  return snapshot.exists() ? snapshot.data() as { role: "admin" | "manager"; unitId?: string; name?: string } : null;
+  return snapshot.exists() ? snapshot.data() as { role: "admin" | "manager"; unitId?: string; name?: string; email?: string; active?: boolean } : null;
 }
 
 export async function saveDailySale(entry: SalesEntry) {
