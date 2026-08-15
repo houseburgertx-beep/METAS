@@ -185,6 +185,10 @@ export default function HomePage() {
     const totalDays = dates.length * unitIds.length;
     let completedDays = 0, fetchedSessions = 0, importedSessions = 0, ignoredSessions = 0, workerVersion = "";
     const ignoredReasons = { open: 0, canceled: 0, withoutValue: 0 };
+    const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
+    const observedChannels = new Set<string>();
+    const observedTableTypes = new Set<string>();
+    const observedDeliveryBy = new Set<string>();
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -203,6 +207,12 @@ export default function HomePage() {
             ignoredReasons.open += summary?.ignoredReasons?.open ?? 0;
             ignoredReasons.canceled += summary?.ignoredReasons?.canceled ?? 0;
             ignoredReasons.withoutValue += summary?.ignoredReasons?.withoutValue ?? 0;
+            classifiedSessions.salao += summary?.classifiedSessions?.salao ?? 0;
+            classifiedSessions.delivery += summary?.classifiedSessions?.delivery ?? 0;
+            classifiedSessions.ifood += summary?.classifiedSessions?.ifood ?? 0;
+            summary?.channels?.forEach((channel) => observedChannels.add(channel));
+            summary?.tableTypes?.forEach((type) => observedTableTypes.add(type));
+            summary?.deliveryBy?.forEach((type) => observedDeliveryBy.add(type));
             workerVersion = summary?.workerVersion || workerVersion;
             const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
             if (restaurantName) authenticatedRestaurants.add(restaurantName);
@@ -229,7 +239,11 @@ export default function HomePage() {
     const versionText = workerVersion ? ` • Integrador ${workerVersion}` : " • Integrador sem identificação";
     const restaurantText = authenticatedRestaurants.size ? ` • Restaurante API: ${[...authenticatedRestaurants].join(", ")}` : "";
     const ignoredText = ignoredSessions ? ` (${ignoredReasons.open} abertas, ${ignoredReasons.canceled} canceladas, ${ignoredReasons.withoutValue} sem valor)` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const channelText = ` • Classificação: Salão ${classifiedSessions.salao}, Delivery ${classifiedSessions.delivery}, iFood ${classifiedSessions.ifood}`;
+    const observedText = observedChannels.size ? ` • Canais API: ${[...observedChannels].sort().join(", ")}` : " • Canais API: não informados";
+    const tableTypeText = observedTableTypes.size ? ` • Tipos API: ${[...observedTableTypes].sort().join(", ")}` : "";
+    const deliveryByText = observedDeliveryBy.size ? ` • Entrega API: ${[...observedDeliveryBy].sort().join(", ")}` : "";
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
