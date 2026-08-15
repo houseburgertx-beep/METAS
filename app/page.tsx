@@ -198,7 +198,14 @@ export default function HomePage() {
     };
     const adjustmentTotals = { deliveryTax: 0, totalDelivery: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0, paymentMinusProduct: 0 };
     const paymentMethodTotals: Record<string, number> = {};
+    const paymentMethodTotalsByChannel: Record<"salao" | "delivery" | "ifood", Record<string, number>> = { salao: {}, delivery: {}, ifood: {} };
     const openProductTotals = { salao: 0, delivery: 0, ifood: 0 };
+    const openServiceTotals = { salao: 0, delivery: 0, ifood: 0 };
+    const adjustmentTotalsByChannel = {
+      salao: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      delivery: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+      ifood: { deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
+    };
     const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
       const unitName = UNITS.find((item) => item.id === unitId)?.name || unitId;
@@ -238,6 +245,15 @@ export default function HomePage() {
             });
             Object.entries(summary?.paymentMethodTotals || {}).forEach(([method, value]) => {
               paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + value;
+            });
+            (["salao", "delivery", "ifood"] as const).forEach((channel) => {
+              Object.entries(summary?.paymentMethodTotalsByChannel?.[channel] || {}).forEach(([method, value]) => {
+                paymentMethodTotalsByChannel[channel][method] = (paymentMethodTotalsByChannel[channel][method] || 0) + value;
+              });
+              (Object.keys(adjustmentTotalsByChannel[channel]) as Array<keyof typeof adjustmentTotalsByChannel.salao>).forEach((key) => {
+                adjustmentTotalsByChannel[channel][key] += summary?.adjustmentTotalsByChannel?.[channel]?.[key] || 0;
+              });
+              openServiceTotals[channel] += summary?.openServiceTotals?.[channel] || 0;
             });
             openProductTotals.salao += summary?.openProductTotals?.salao || 0;
             openProductTotals.delivery += summary?.openProductTotals?.delivery || 0;
@@ -280,7 +296,9 @@ export default function HomePage() {
     const adjustmentText = ` • Ajustes API: taxa entrega ${formatMoney(adjustmentTotals.deliveryTax)}, total entrega ${formatMoney(adjustmentTotals.totalDelivery)}, desconto entrega ${formatMoney(adjustmentTotals.deliveryFeeDiscount)}, desconto estabelecimento ${formatMoney(adjustmentTotals.merchantDiscount)}, desconto total ${formatMoney(adjustmentTotals.discountTotal)}, serviço ${formatMoney(adjustmentTotals.serviceDelta)}, pagamento-produto ${formatMoney(adjustmentTotals.paymentMinusProduct)}`;
     const methodTotalsText = ` • Valores por pagamento: ${Object.entries(paymentMethodTotals).sort(([a], [b]) => a.localeCompare(b)).map(([method, value]) => `${method} ${formatMoney(value)}`).join(", ")}`;
     const openTotalsText = ` • Abertas com produtos: S ${formatMoney(openProductTotals.salao)} D ${formatMoney(openProductTotals.delivery)} I ${formatMoney(openProductTotals.ifood)} T ${formatMoney(openProductTotals.salao + openProductTotals.delivery + openProductTotals.ifood)}`;
-    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${adjustmentText}${methodTotalsText}${openTotalsText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    const auditMoney = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const channelAuditText = ` • Auditoria por canal: ${(["salao", "delivery", "ifood"] as const).map((channel) => { const a = adjustmentTotalsByChannel[channel]; const cashback = paymentMethodTotalsByChannel[channel]["Cashback Takeat"] || 0; return `${channel} serviço ${auditMoney(a.serviceDelta)}, cashback ${auditMoney(cashback)}, taxa entrega ${auditMoney(a.deliveryTax)}, desconto entrega ${auditMoney(a.deliveryFeeDiscount)}, desconto estabelecimento ${auditMoney(a.merchantDiscount)}, desconto total ${auditMoney(a.discountTotal)}, aberta produto ${auditMoney(openProductTotals[channel])}, aberta serviço ${auditMoney(openServiceTotals[channel])}`; }).join("; ")}`;
+    setSyncStatus({ state: "success", message: `${dates.length} dias verificados${unitText} • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas • ${ignoredSessions} ignoradas${ignoredText}${restaurantText} • Base financeira: pagamentos recebidos${channelText}${observedText}${tableTypeText}${deliveryByText}${paymentMethodsText}${basisText}${adjustmentText}${methodTotalsText}${openTotalsText}${channelAuditText}${deliveryMatrixText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
   }
   useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
   useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
