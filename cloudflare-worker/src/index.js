@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-adjustment-audit-v13";
+const WORKER_VERSION = "2026-08-15-payment-method-audit-v14";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -301,6 +301,8 @@ async function syncTakeat(request, env, origin) {
       service: { salao: 0, delivery: 0, ifood: 0 },
     };
     const adjustmentTotals = { deliveryTax: 0, totalDelivery: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0, paymentMinusProduct: 0 };
+    const paymentMethodTotals = {};
+    const openProductTotals = { salao: 0, delivery: 0, ifood: 0 };
     const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
     const observedStatuses = {};
     let imported = 0, ignored = 0;
@@ -318,9 +320,19 @@ async function syncTakeat(request, env, origin) {
       const canceled = status.includes("cancel") || Boolean(session.delivery_canceled_at);
       const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
       if (canceled) { ignored += 1; ignoredReasons.canceled += 1; continue; }
-      if (!settled) { ignored += 1; ignoredReasons.open += 1; continue; }
+      if (!settled) {
+        const openClassification = classifySession(session, rules);
+        if (Number.isFinite(productValue) && productValue > 0) openProductTotals[openClassification.key] += productValue;
+        ignored += 1; ignoredReasons.open += 1; continue;
+      }
       if (!Number.isFinite(value) || value <= 0) { ignored += 1; ignoredReasons.withoutValue += 1; continue; }
       const classification = classifySession(session, rules);
+      for (const payment of session.payments || []) {
+        const method = payment?.payment_method || {};
+        const methodName = String(method.name || method.keyword || method.method || "não informado").trim();
+        const amount = Number(payment.payment_value || 0) || 0;
+        paymentMethodTotals[methodName] = (paymentMethodTotals[methodName] || 0) + amount;
+      }
       classification.channels.forEach((channel) => observedChannels.add(channel));
       classification.paymentLabels.forEach((label) => observedPaymentMethods.add(label));
       if (session.table?.table_type) observedTableTypes.add(String(session.table.table_type));
@@ -361,7 +373,7 @@ async function syncTakeat(request, env, origin) {
       source: "takeat",
       createdBy: auth.uid,
       updatedAt: new Date().toISOString(),
-      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), deliverySignalStats, basisTotals, adjustmentTotals, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
+      sourceSummary: { sessions: imported, ignored, fetched: sessions.length, ignoredReasons, revenueBasis: "payment_value", channels: [...observedChannels].sort(), tableTypes: [...observedTableTypes].sort(), deliveryBy: [...observedDeliveryBy].sort(), paymentMethods: [...observedPaymentMethods].sort(), paymentMethodTotals, openProductTotals, deliverySignalStats, basisTotals, adjustmentTotals, classifiedSessions, statuses: observedStatuses, restaurant: takeatAuth.restaurant, workerVersion: WORKER_VERSION },
     }, 200, origin);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat." }, 500, origin);
