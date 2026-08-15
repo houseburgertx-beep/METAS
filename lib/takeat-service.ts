@@ -13,6 +13,7 @@ export type TakeatSyncResult = SalesEntry & {
     tableTypes?: string[];
     deliveryBy?: string[];
     paymentMethods?: string[];
+    deliverySignalStats?: Record<string, { count?: number; value?: number }>;
     classifiedSessions?: { salao?: number; delivery?: number; ifood?: number };
     statuses?: Record<string, number>;
     ignoredReasons?: { open?: number; canceled?: number; withoutValue?: number };
