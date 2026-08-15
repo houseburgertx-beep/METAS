@@ -4,10 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
+    "deploy": "npx --yes wrangler@4.92.0 deploy",
     "check": "node --check src/index.js"
-  },
-  "devDependencies": {
-    "wrangler": "4.92.0"
   }
 }
