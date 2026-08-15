@@ -28,6 +28,7 @@ const makeHouse190 = (id: string, name: string, shortName: string): UnitConfig =
   monthlyGoal: 200000,
   superGoal: 210000,
   superBonus: 1000,
+  cmvTargetPercent: 35,
   channels: {
     salao: { label: "Salão", goal: 70000, bonus: 500 },
     delivery: {
@@ -61,6 +62,7 @@ export const UNITS: UnitConfig[] = [
     monthlyGoal: 180000,
     superGoal: 190000,
     superBonus: 1000,
+    cmvTargetPercent: 35,
     channels: {
       salao: { label: "Salão", goal: 90000, bonus: 500 },
       delivery: {

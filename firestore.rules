@@ -29,6 +29,13 @@ service cloud.firestore {
         && request.resource.data.unitId == resource.data.unitId;
       allow delete: if isAdmin();
     }
+    match /cmvEntries/{entryId} {
+      allow read: if canAccessUnit(resource.data.unitId);
+      allow create: if canAccessUnit(request.resource.data.unitId);
+      allow update: if canAccessUnit(resource.data.unitId)
+        && request.resource.data.unitId == resource.data.unitId;
+      allow delete: if isAdmin();
+    }
     match /monthlyPerformance/{id} {
       allow read: if canAccessUnit(resource.data.unitId);
       allow write: if isAdmin();
