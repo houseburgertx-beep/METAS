@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-ignored-financial-audit-v17";
+const WORKER_VERSION = "2026-08-15-takeat-final-v18";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -328,9 +328,12 @@ async function syncTakeat(request, env, origin) {
       const serviceValue = Number(session.total_service_price || 0);
       // A documentação da Takeat define payment_value como o valor que entrou
       // no faturamento, já descontado o troco. É a mesma base do relatório.
-      const value = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
+      const rawValue = Number.isFinite(paymentValue) && paymentValue > 0 ? paymentValue : productValue;
       const classification = classifySession(session, rules);
-      const canceled = status.includes("cancel") || Boolean(session.delivery_canceled_at);
+      // delivery_canceled_at também aparece em vendas já concluídas e recebidas.
+      // O relatório da Takeat mantém essas vendas; cancelamento real é definido
+      // pelo status da comanda.
+      const canceled = status.includes("cancel");
       const settled = status === "completed" || Boolean(session.completed_at) || Boolean(session.end_time) || paymentValue > 0;
       if (canceled) {
         const item = ignoredFinancials.canceled[classification.key];
@@ -345,7 +348,7 @@ async function syncTakeat(request, env, origin) {
         item.count += 1; item.payment += Number.isFinite(paymentValue) ? paymentValue : 0; item.product += Number.isFinite(productValue) ? productValue : 0;
         ignored += 1; ignoredReasons.open += 1; continue;
       }
-      if (!Number.isFinite(value) || value <= 0) {
+      if (!Number.isFinite(rawValue) || rawValue <= 0) {
         const item = ignoredFinancials.withoutValue[classification.key];
         item.count += 1; item.payment += Number.isFinite(paymentValue) ? paymentValue : 0; item.product += Number.isFinite(productValue) ? productValue : 0;
         ignored += 1; ignoredReasons.withoutValue += 1; continue;
@@ -358,6 +361,15 @@ async function syncTakeat(request, env, origin) {
         const channelMethods = paymentMethodTotalsByChannel[classification.key];
         channelMethods[methodName] = (channelMethods[methodName] || 0) + amount;
       }
+      const cashbackValue = (session.payments || []).reduce((total, payment) => {
+        const method = payment?.payment_method || {};
+        const label = [method.name, method.keyword, method.method].filter(Boolean).join(" ").toLowerCase();
+        return total + (label.includes("cashback") ? (Number(payment.payment_value || 0) || 0) : 0);
+      }, 0);
+      const serviceDelta = Math.max(0, (Number.isFinite(serviceValue) ? serviceValue : 0) - (Number.isFinite(productValue) ? productValue : 0));
+      // Salão no relatório não considera taxa de serviço nem Cashback Takeat.
+      // Delivery e iFood usam o pagamento efetivamente recebido.
+      const value = classification.key === "salao" ? Math.max(0, rawValue - serviceDelta - cashbackValue) : rawValue;
       classification.channels.forEach((channel) => observedChannels.add(channel));
       classification.paymentLabels.forEach((label) => observedPaymentMethods.add(label));
       if (session.table?.table_type) observedTableTypes.add(String(session.table.table_type));
@@ -388,7 +400,7 @@ async function syncTakeat(request, env, origin) {
       channelAdjustments.deliveryFeeDiscount += Number(session.delivery_fee_discount || 0) || 0;
       channelAdjustments.merchantDiscount += Number(session.merchant_discount || 0) || 0;
       channelAdjustments.discountTotal += Number(session.discount_total || 0) || 0;
-      channelAdjustments.serviceDelta += Math.max(0, (Number.isFinite(serviceValue) ? serviceValue : 0) - (Number.isFinite(productValue) ? productValue : 0));
+      channelAdjustments.serviceDelta += serviceDelta;
       classifiedSessions[classification.key] += 1;
       imported += 1;
     }
