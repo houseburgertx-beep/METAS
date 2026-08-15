@@ -6,7 +6,7 @@ const ALLOWED_ORIGINS = new Set([
 const FIREBASE_PROJECT_ID = "house-gestao-49587";
 const TAKEAT_AUTH_URL = "https://backend-pdv.takeat.app/public/api/sessions";
 const TAKEAT_API_URL = "https://backend-pdv.takeat.app/api/v1";
-const WORKER_VERSION = "2026-08-15-channel-audit-v8";
+const WORKER_VERSION = "2026-08-15-ifood-gd-v9";
 const firebaseKeys = { value: null, expiresAt: 0 };
 const takeatTokens = new Map();
 
@@ -188,7 +188,9 @@ function collectChannels(session) {
 }
 
 function channelRules(unitId, env) {
-  const defaults = { ifood: ["ifood"], delivery: ["delivery", "site", "web", "whatsapp", "delivery_proprio"] };
+  // Na API externa da Takeat, os pedidos integrados do Gestor de Delivery
+  // (incluindo o iFood desta operação) chegam com channel "gd".
+  const defaults = { ifood: ["ifood", "gd"], delivery: ["delivery", "site", "web", "whatsapp", "delivery_proprio"] };
   if (!env.TAKEAT_CHANNEL_MAP_JSON) return defaults;
   try {
     const configured = JSON.parse(env.TAKEAT_CHANNEL_MAP_JSON)[unitId] || {};
