@@ -199,7 +199,7 @@ function LoginScreen({ onLogin, error, loading }: { onLogin: (email: string, pas
 }
 
 export default function HomePage() {
-  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("manager"), [units, setUnits] = useState<UnitConfig[]>(UNITS), [unit, setUnit] = useState<UnitConfig>(UNITS[0]), [entries, setEntries] = useState<SalesEntry[]>([]), [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]), [theme, setTheme] = useState<Theme>("system"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("manager"), [units, setUnits] = useState<UnitConfig[]>(UNITS), [unit, setUnit] = useState<UnitConfig>(UNITS[0]), [entries, setEntries] = useState<SalesEntry[]>([]), [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]), [theme, setTheme] = useState<Theme>("light"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
   const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">(firebaseConfigured ? "checking" : "signedout"), [loginError, setLoginError] = useState(""), [loginLoading, setLoginLoading] = useState(false), [profile, setProfile] = useState({ name: "", email: "" });
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." });
   const [permittedUnits, setPermittedUnits] = useState<string[]>([]);
