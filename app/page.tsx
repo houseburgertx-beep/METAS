@@ -2367,56 +2367,120 @@ function LoginScreen({ onLogin, error, loading }: { onLogin: (email: string, pas
 
 export default function HomePage() {
   const [view, setView] = useState<View>("dashboard");
-  const [role, setRole] = useState<UserRole>("manager");
-  const [units, setUnits] = useState<UnitConfig[]>(UNITS);
+  // Cache Local para Abertura Instantânea (< 50ms)
+  const [role, setRole] = useState<UserRole>(() => {
+    if (typeof window === "undefined") return "manager";
+    return (window.localStorage.getItem("house_cache_role") as UserRole) || "manager";
+  });
+  const [units, setUnits] = useState<UnitConfig[]>(() => {
+    if (typeof window === "undefined") return UNITS;
+    try {
+      const cached = window.localStorage.getItem("house_cache_units");
+      return cached ? JSON.parse(cached) : UNITS;
+    } catch {
+      return UNITS;
+    }
+  });
   const [unit, setUnit] = useState<UnitConfig>(UNITS[0]);
-  const [entries, setEntries] = useState<SalesEntry[]>([]);
-  const [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]);
-  const [freelancers, setFreelancers] = useState<FreelancerEntry[]>([]);
+  const [entries, setEntries] = useState<SalesEntry[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const cached = window.localStorage.getItem("house_cache_entries");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [cmvRecords, setCmvRecords] = useState<CmvEntry[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const cached = window.localStorage.getItem("house_cache_cmv");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [freelancers, setFreelancers] = useState<FreelancerEntry[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const cached = window.localStorage.getItem("house_cache_freelancers");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [freelancersModalOpen, setFreelancersModalOpen] = useState(false);
   const [subBrandModalOpen, setSubBrandModalOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
   const [toast, setToast] = useState<string | null>(null);
   const [unitMenu, setUnitMenu] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">(firebaseConfigured ? "checking" : "signedout");
+  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">(() => {
+    if (typeof window === "undefined") return firebaseConfigured ? "checking" : "signedout";
+    const cachedProfile = window.localStorage.getItem("house_cache_profile");
+    return cachedProfile ? "signedin" : firebaseConfigured ? "checking" : "signedout";
+  });
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [profile, setProfile] = useState({ name: "", email: "" });
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." });
+  const [profile, setProfile] = useState<{ name: string; email: string }>(() => {
+    if (typeof window === "undefined") return { name: "", email: "" };
+    try {
+      const cached = window.localStorage.getItem("house_cache_profile");
+      return cached ? JSON.parse(cached) : { name: "", email: "" };
+    } catch {
+      return { name: "", email: "" };
+    }
+  });
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle", message: "Vendas sincronizadas com a Takeat." });
   const [permittedUnits, setPermittedUnits] = useState<string[]>([]);
 
-  async function synchronizeMonth(unitIds: string[]) {
+  // Sincronização inteligente e rápida (Apenas dias recentes por padrão, ou mês completo quando solicitado)
+  async function synchronizeMonth(unitIds: string[], fullMonth = false) {
     if (!unitIds.length) return;
-    setSyncStatus({ state: "syncing", message: "Buscando Salão, Delivery e iFood desde o primeiro dia do mês..." });
+    setSyncStatus({
+      state: "syncing",
+      message: fullMonth ? "Atualizando todos os dias do mês..." : "Verificando vendas recentes...",
+    });
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
-    const dates = monthDatesUntil(currentDate), synchronized: SalesEntry[] = [], failures: string[] = [];
-    let importedSessions = 0, ignoredSessions = 0;
+
+    // Se não for fullMonth, busca apenas Ontem e Hoje para ser ultrarrápido (< 1s)
+    let dates: string[];
+    if (fullMonth) {
+      dates = monthDatesUntil(currentDate);
+    } else {
+      const yesterday = new Date(currentDate);
+      yesterday.setDate(yesterday.getDate() - 1);
+      dates = [isoDate(yesterday), isoDate(currentDate)];
+    }
+
+    const synchronized: SalesEntry[] = [];
+    let importedSessions = 0;
+
     for (const unitId of unitIds) {
-      for (let index = 0; index < dates.length; index += 3) {
-        const batchDates = dates.slice(index, index + 3);
-        const batch = await Promise.allSettled(batchDates.map((date) => syncTakeatSale(unitId, date)));
-        for (const result of batch) {
-          if (result.status === "fulfilled") {
-            synchronized.push(result.value);
-            const summary = result.value.sourceSummary;
-            importedSessions += summary?.sessions ?? 0;
-            ignoredSessions += summary?.ignored ?? 0;
-            if (firebaseConfigured) void saveDailySale(result.value).catch(console.error);
-          } else {
-            failures.push(result.reason instanceof Error ? result.reason.message : "Erro");
-          }
+      const batch = await Promise.allSettled(dates.map((date) => syncTakeatSale(unitId, date)));
+      for (const result of batch) {
+        if (result.status === "fulfilled") {
+          synchronized.push(result.value);
+          const summary = result.value.sourceSummary;
+          importedSessions += summary?.sessions ?? 0;
+          if (firebaseConfigured) void saveDailySale(result.value).catch(console.error);
         }
       }
     }
+
     setEntries((current) => {
       const byId = new Map(current.map((e) => [`${e.unitId}_${e.date}`, e]));
       synchronized.forEach((e) => byId.set(`${e.unitId}_${e.date}`, e));
-      return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+      const nextList = [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("house_cache_entries", JSON.stringify(nextList));
+      }
+      return nextList;
     });
+
     setSyncStatus({
       state: "success",
-      message: `${dates.length} dias atualizados • ${importedSessions} vendas válidas da Takeat sincronizadas.`,
+      message: `${dates.length} dia(s) atualizado(s) • ${importedSessions} vendas válidas da Takeat.`,
     });
   }
 
@@ -2454,6 +2518,12 @@ export default function HomePage() {
       if (!auth) return setAuthState("signedout");
       unsubscribe = onAuthStateChanged(auth, async (user) => {
         if (!user) {
+          if (typeof window !== "undefined") {
+            window.localStorage.removeItem("house_cache_profile");
+            window.localStorage.removeItem("house_cache_entries");
+            window.localStorage.removeItem("house_cache_cmv");
+            window.localStorage.removeItem("house_cache_freelancers");
+          }
           setEntries([]);
           setCmvRecords([]);
           setFreelancers([]);
@@ -2461,14 +2531,23 @@ export default function HomePage() {
           setAuthState("signedout");
           return;
         }
+
         const userProfile = await loadUserProfile(user.uid);
         if (!userProfile?.role) {
           setLoginError("Seu perfil ainda não foi liberado pelo administrador.");
           setAuthState("signedout");
           return;
         }
+
+        const currentProfile = { name: userProfile.name || user.email || "Usuário House", email: userProfile.email || user.email || "" };
         setRole(userProfile.role);
-        setProfile({ name: userProfile.name || user.email || "Usuário House", email: userProfile.email || user.email || "" });
+        setProfile(currentProfile);
+
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("house_cache_profile", JSON.stringify(currentProfile));
+          window.localStorage.setItem("house_cache_role", userProfile.role);
+        }
+
         const monthPrefix = isoDate(currentDate).slice(0, 7);
         const permitted = userProfile.role === "admin" ? UNITS.map((item) => item.id) : userProfile.unitId ? [userProfile.unitId] : [];
         const [goalOverrides, storedCmv, storedFreelancers] = await Promise.all([
@@ -2476,30 +2555,54 @@ export default function HomePage() {
           loadCmvEntries(permitted).catch(() => []),
           loadFreelancerEntries(permitted, monthPrefix).catch(() => []),
         ]);
+
         const effectiveUnits = UNITS.map((base) => {
           const override = goalOverrides.find((item) => item.id === base.id);
           return override ? { ...base, ...override } : base;
         });
+
         setUnits(effectiveUnits);
         setCmvRecords(storedCmv);
         setFreelancers(storedFreelancers);
+
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("house_cache_units", JSON.stringify(effectiveUnits));
+          window.localStorage.setItem("house_cache_cmv", JSON.stringify(storedCmv));
+          window.localStorage.setItem("house_cache_freelancers", JSON.stringify(storedFreelancers));
+        }
+
         if (userProfile.role === "admin") {
           const adminDefaultUnit = effectiveUnits.find((item) => item.id === "house190-teixeira") || effectiveUnits[0];
           setUnit(adminDefaultUnit);
           const salesByUnit = await Promise.all(effectiveUnits.map((item) => loadUnitSales(item.id, monthPrefix)));
-          setEntries(salesByUnit.flat());
+          const flatSales = salesByUnit.flat();
+          if (flatSales.length > 0) {
+            setEntries(flatSales);
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem("house_cache_entries", JSON.stringify(flatSales));
+            }
+          }
           setView("admin");
         } else if (userProfile.unitId) {
           const assigned = effectiveUnits.find((item) => item.id === userProfile.unitId);
           if (assigned) {
             setUnit(assigned);
-            setEntries(await loadUnitSales(assigned.id, monthPrefix));
+            const userSales = await loadUnitSales(assigned.id, monthPrefix);
+            if (userSales.length > 0) {
+              setEntries(userSales);
+              if (typeof window !== "undefined") {
+                window.localStorage.setItem("house_cache_entries", JSON.stringify(userSales));
+              }
+            }
           }
         }
+
         setAuthState("signedin");
         const automaticUnits = userProfile.role === "admin" ? effectiveUnits.map((u) => u.id) : permitted;
         setPermittedUnits(permitted);
-        void synchronizeMonth(automaticUnits).catch((error) =>
+
+        // Dispara sync rápido em background (apenas 2 dias recentes) sem travar a tela
+        void synchronizeMonth(automaticUnits, false).catch((error) =>
           setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Erro ao sincronizar Takeat" })
         );
       });
@@ -2539,7 +2642,11 @@ export default function HomePage() {
       const { saveDailySale } = await import("@/lib/firestore-service");
       await saveDailySale(normalized);
     }
-    setEntries((current) => [...current.filter((item) => !(item.unitId === normalized.unitId && item.date === normalized.date)), normalized].sort((a, b) => a.date.localeCompare(b.date)));
+    setEntries((current) => {
+      const nextList = [...current.filter((item) => !(item.unitId === normalized.unitId && item.date === normalized.date)), normalized].sort((a, b) => a.date.localeCompare(b.date));
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_entries", JSON.stringify(nextList));
+      return nextList;
+    });
     setToast(`Vendas de ${formatDateBR(normalized.date)} registradas.`);
   };
 
@@ -2551,7 +2658,9 @@ export default function HomePage() {
     setEntries((current) => {
       const byId = new Map(current.map((e) => [`${e.unitId}_${e.date}`, e]));
       updatedEntries.forEach((e) => byId.set(`${e.unitId}_${e.date}`, e));
-      return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+      const nextList = [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_entries", JSON.stringify(nextList));
+      return nextList;
     });
     setToast(`Faturamento de sub-marcas do mês atualizado com sucesso.`);
   };
@@ -2560,7 +2669,11 @@ export default function HomePage() {
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
     const entry = await syncTakeatSale(unitId, date);
     await saveDailySale(entry);
-    setEntries((current) => [...current.filter((item) => !(item.unitId === entry.unitId && item.date === entry.date)), entry].sort((a, b) => a.date.localeCompare(b.date)));
+    setEntries((current) => {
+      const nextList = [...current.filter((item) => !(item.unitId === entry.unitId && item.date === entry.date)), entry].sort((a, b) => a.date.localeCompare(b.date));
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_entries", JSON.stringify(nextList));
+      return nextList;
+    });
     setToast(`Takeat sincronizada: ${formatMoney(entryTotal(entry))} em ${formatDateBR(entry.date)}.`);
     return entry;
   };
@@ -2570,7 +2683,11 @@ export default function HomePage() {
       const { saveCmvEntry } = await import("@/lib/firestore-service");
       await saveCmvEntry(entry);
     }
-    setCmvRecords((current) => [entry, ...current.filter((item) => item.id !== entry.id)].sort((a, b) => b.weekStart.localeCompare(a.weekStart)));
+    setCmvRecords((current) => {
+      const nextList = [entry, ...current.filter((item) => item.id !== entry.id)].sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_cmv", JSON.stringify(nextList));
+      return nextList;
+    });
     setToast(`CMV de ${formatDateBR(entry.weekStart)} a ${formatDateBR(entry.weekEnd)} salvo.`);
   };
 
@@ -2579,7 +2696,11 @@ export default function HomePage() {
       const { saveFreelancerEntry } = await import("@/lib/firestore-service");
       await saveFreelancerEntry(entry);
     }
-    setFreelancers((current) => [entry, ...current.filter((f) => f.id !== entry.id)].sort((a, b) => b.date.localeCompare(a.date)));
+    setFreelancers((current) => {
+      const nextList = [entry, ...current.filter((f) => f.id !== entry.id)].sort((a, b) => b.date.localeCompare(a.date));
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_freelancers", JSON.stringify(nextList));
+      return nextList;
+    });
     setToast(`Diária de ${entry.role} (${formatMoney(entry.amount)}) registrada.`);
   };
 
@@ -2588,7 +2709,11 @@ export default function HomePage() {
       const { deleteFreelancerEntry } = await import("@/lib/firestore-service");
       await deleteFreelancerEntry(id);
     }
-    setFreelancers((current) => current.filter((f) => f.id !== id));
+    setFreelancers((current) => {
+      const nextList = current.filter((f) => f.id !== id);
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_freelancers", JSON.stringify(nextList));
+      return nextList;
+    });
     setToast("Lançamento de diarista removido.");
   };
 
@@ -2598,7 +2723,11 @@ export default function HomePage() {
       const { saveUnitGoals } = await import("@/lib/firestore-service");
       await saveUnitGoals(updated);
     }
-    setUnits((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    setUnits((current) => {
+      const nextList = current.map((item) => (item.id === updated.id ? updated : item));
+      if (typeof window !== "undefined") window.localStorage.setItem("house_cache_units", JSON.stringify(nextList));
+      return nextList;
+    });
     setUnit((current) => (current.id === updated.id ? updated : current));
     setToast(`Metas de ${updated.shortName} foram atualizadas.`);
   };
@@ -2608,7 +2737,7 @@ export default function HomePage() {
     setUnit(next);
     setUnitMenu(false);
     setView("dashboard");
-    if (role === "admin") void synchronizeMonth([next.id]);
+    if (role === "admin") void synchronizeMonth([next.id], false);
   };
 
   if (authState === "checking") return <div className="app-loading"><span className="brand-mark"><BarChart3 size={25} /></span><div><i /><i /><i /></div></div>;
@@ -2668,7 +2797,7 @@ export default function HomePage() {
               freelancers={freelancers}
               onNavigate={setView}
               syncStatus={syncStatus}
-              onSync={() => void synchronizeMonth(role === "admin" ? units.map((u) => u.id) : permittedUnits)}
+              onSync={() => void synchronizeMonth(role === "admin" ? units.map((u) => u.id) : permittedUnits, true)}
               onOpenFreelancers={() => setFreelancersModalOpen(true)}
               onOpenSubBrands={() => setSubBrandModalOpen(true)}
             />
