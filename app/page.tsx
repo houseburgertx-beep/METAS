@@ -188,82 +188,164 @@ function Donut({ channels }: { channels: { label: string; realized: number; key:
   );
 }
 
-function TvModeView({ unit, entries, onClose }: { unit: UnitConfig; entries: SalesEntry[]; onClose: () => void }) {
-  const metrics = calculatePerformance(unit, entries, currentDate);
-  const todayEntry = entries.find((e) => e.unitId === unit.id && e.date === isoDate(currentDate));
-  const [y, m, d] = isoDate(currentDate).split("-").map(Number);
-  const todayTarget = unit.dailyTargets[new Date(y, m - 1, d).getDay()].total;
-  const todayTotal = todayEntry ? entryTotal(todayEntry) : 0;
-  const todayPct = todayTarget > 0 ? (todayTotal / todayTarget) * 100 : 0;
+function TvModeView({
+  units,
+  entries,
+  cmvRecords,
+  onClose,
+  onSync,
+}: {
+  units: UnitConfig[];
+  entries: SalesEntry[];
+  cmvRecords: CmvEntry[];
+  onClose: () => void;
+  onSync: () => void;
+}) {
+  const todayStr = isoDate(currentDate);
+  const currentMonthPrefix = todayStr.slice(0, 7);
+
+  const unitCards = units.map((u) => {
+    const metrics = calculatePerformance(u, entries, currentDate);
+    const unitEntries = entries.filter((e) => e.unitId === u.id);
+    const todayEntry = unitEntries.find((e) => e.date === todayStr);
+    const lastEntry = unitEntries[unitEntries.length - 1];
+    const displayDayEntry = todayEntry || lastEntry;
+    const [y, m, d] = (displayDayEntry?.date || todayStr).split("-").map(Number);
+    const dayTarget = u.dailyTargets[new Date(y, m - 1, d).getDay()].total;
+    const dayTotal = displayDayEntry ? entryTotal(displayDayEntry) : 0;
+    const dayPct = dayTarget > 0 ? (dayTotal / dayTarget) * 100 : 0;
+
+    const liveCmv = cmvRecords
+      .filter((r) => r.unitId === u.id)
+      .map((r) => ({
+        ...r,
+        revenue: revenueForPeriod(entries, r.unitId, r.weekStart, r.weekEnd) || r.revenue,
+      }));
+    const monthCmv = monthlyCmv(liveCmv, u, currentMonthPrefix);
+
+    return {
+      unit: u,
+      metrics,
+      displayDayEntry,
+      dayTotal,
+      dayTarget,
+      dayPct,
+      monthCmv,
+    };
+  });
+
+  const totalNetworkMonth = unitCards.reduce((sum, c) => sum + c.metrics.total, 0);
+  const totalNetworkGoal = unitCards.reduce((sum, c) => sum + c.unit.monthlyGoal, 0);
+  const networkPct = totalNetworkGoal > 0 ? (totalNetworkMonth / totalNetworkGoal) * 100 : 0;
 
   return (
     <div className="tv-mode-overlay">
-      <header className="tv-header">
+      <header className="tv-multi-top">
         <div className="tv-brand-block">
-          <span className="brand-mark"><BarChart3 size={32} /></span>
+          <span className="brand-mark"><BarChart3 size={28} /></span>
           <div>
-            <h1>{unit.name}</h1>
-            <span>Painel Operacional · {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</span>
+            <h1>Painel Multi-Lojas · House Gestão</h1>
+            <span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</span>
           </div>
         </div>
-        <button className="tv-exit-btn" onClick={onClose}>
-          <X size={18} /> Sair do Modo TV
-        </button>
+
+        <div className="tv-top-actions-cluster">
+          <div className="tv-network-summary">
+            <div className="tv-network-kpi">
+              <span>Rede Total no Mês</span>
+              <strong>{formatMoney(totalNetworkMonth)}</strong>
+              <small>Meta: {formatMoney(totalNetworkGoal)} ({formatPercent(networkPct)})</small>
+            </div>
+          </div>
+          <button className="tv-exit-btn" onClick={onSync} title="Atualizar dados Takeat">
+            <RefreshCw size={15} /> Sincronizar
+          </button>
+          <button className="tv-exit-btn" onClick={onClose}>
+            <X size={16} /> Sair do Modo TV
+          </button>
+        </div>
       </header>
 
-      <section className="tv-kpi-main">
-        <span>Faturamento de Hoje</span>
-        <div className="tv-kpi-val">{formatMoney(todayTotal)}</div>
-        <div className="tv-target-badge">
-          Meta do dia: <b>{formatMoney(todayTarget)}</b> ({formatPercent(todayPct)})
-        </div>
-        <div className="tv-progress-container">
-          <div className="tv-progress-fill" style={{ width: `${Math.min(todayPct, 100)}%` }} />
-        </div>
-      </section>
+      {/* Grid de Todas as Lojas Separadas */}
+      <section className="tv-multi-grid">
+        {unitCards.map(({ unit: u, metrics, displayDayEntry, dayTotal, dayTarget, dayPct, monthCmv }) => {
+          const isHealthy = metrics.health === "green";
+          return (
+            <article key={u.id} className={`tv-unit-card ${u.type === "foodpark" ? "unit-foodpark" : ""}`}>
+              <div className="tv-unit-head">
+                <div>
+                  <h2>{u.name}</h2>
+                  <span>Meta mensal: {formatMoney(u.monthlyGoal)}</span>
+                </div>
+                <span className={`status-badge status-${isHealthy ? "success" : "warning"}`}>
+                  {metrics.healthLabel}
+                </span>
+              </div>
 
-      <section className="tv-channels-grid">
-        <div className="tv-channel-card">
-          <span>Salão</span>
-          <strong>{formatMoney(todayEntry?.salao || 0)}</strong>
-          <small>{todayTotal > 0 ? formatPercent(((todayEntry?.salao || 0) / todayTotal) * 100) : "0%"} do dia</small>
-        </div>
-        <div className="tv-channel-card">
-          <span>Delivery Próprio</span>
-          <strong>{formatMoney(todayEntry?.delivery || 0)}</strong>
-          <small>{todayTotal > 0 ? formatPercent(((todayEntry?.delivery || 0) / todayTotal) * 100) : "0%"} do dia</small>
-        </div>
-        <div className="tv-channel-card">
-          <span>iFood</span>
-          <strong>{formatMoney(todayEntry?.ifood || 0)}</strong>
-          <small>{todayTotal > 0 ? formatPercent(((todayEntry?.ifood || 0) / todayTotal) * 100) : "0%"} do dia</small>
-        </div>
-      </section>
+              <div>
+                <span style={{ fontSize: 11, color: "#a8a29e", textTransform: "uppercase", fontWeight: 700 }}>
+                  Faturamento no Mês
+                </span>
+                <div className="tv-unit-main-val">{formatMoney(metrics.total)}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}>
+                  <span><b>{formatPercent(metrics.percentage)}</b> da meta</span>
+                  <span>Falta: <b>{formatMoney(metrics.missing)}</b></span>
+                </div>
+                <div className="tv-progress-container" style={{ margin: "8px 0 0", height: 8 }}>
+                  <div className="tv-progress-fill" style={{ width: `${Math.min(metrics.percentage, 100)}%` }} />
+                </div>
+              </div>
 
-      <footer className="tv-footer-stats">
-        <div>
-          <span>Total no Mês</span>
-          <strong>{formatMoney(metrics.total)}</strong>
-        </div>
-        <div>
-          <span>Progresso da Meta Mensal</span>
-          <strong>{formatPercent(metrics.percentage)}</strong>
-        </div>
-        <div>
-          <span>Média Necessária</span>
-          <strong>{formatMoney(metrics.necessaryAverage)}/dia</strong>
-        </div>
-        <div>
-          <span>Projeção de Fechamento</span>
-          <strong>{formatMoney(metrics.projection)}</strong>
-        </div>
-      </footer>
+              {/* Vendas do Dia */}
+              <div className="tv-unit-today-box">
+                <div className="tv-unit-today-head">
+                  <span>
+                    Vendas de {displayDayEntry ? formatDateBR(displayDayEntry.date) : "Hoje"}:
+                  </span>
+                  <strong>{formatMoney(dayTotal)}</strong>
+                </div>
+                <div style={{ fontSize: 10, color: "#a8a29e" }}>
+                  Meta do dia: {formatMoney(dayTarget)} ({formatPercent(dayPct)})
+                </div>
+                <div className="tv-unit-channels">
+                  <div className="tv-unit-chan-tile">
+                    <span>Salão</span>
+                    <strong>{formatMoney(displayDayEntry?.salao || 0)}</strong>
+                  </div>
+                  <div className="tv-unit-chan-tile">
+                    <span>Delivery</span>
+                    <strong>{formatMoney(displayDayEntry?.delivery || 0)}</strong>
+                  </div>
+                  <div className="tv-unit-chan-tile">
+                    <span>iFood</span>
+                    <strong>{formatMoney(displayDayEntry?.ifood || 0)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tv-unit-footer">
+                <div>
+                  <span>CMV Acumulado:</span>{" "}
+                  <strong style={{ color: monthCmv.weeks && monthCmv.percentage <= u.cmvTargetPercent ? "var(--success)" : "#f87171" }}>
+                    {monthCmv.weeks ? formatPercent(monthCmv.percentage) : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Projeção:</span>{" "}
+                  <strong>{formatMoney(metrics.projection)}</strong>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </section>
     </div>
   );
 }
 
 function Dashboard({
   unit,
+  units,
   entries,
   cmvRecords,
   freelancers,
@@ -273,6 +355,7 @@ function Dashboard({
   onOpenFreelancers,
 }: {
   unit: UnitConfig;
+  units: UnitConfig[];
   entries: SalesEntry[];
   cmvRecords: CmvEntry[];
   freelancers: FreelancerEntry[];
@@ -338,12 +421,20 @@ function Dashboard({
 
   return (
     <div className="screen-stack dashboard-screen">
-      {tvMode && <TvModeView unit={unit} entries={entries} onClose={() => setTvMode(false)} />}
+      {tvMode && (
+        <TvModeView
+          units={units}
+          entries={entries}
+          cmvRecords={cmvRecords}
+          onClose={() => setTvMode(false)}
+          onSync={onSync}
+        />
+      )}
 
       {/* Top Bar Actions: TV Mode and WhatsApp */}
       <div className="dashboard-top-actions">
         <button className="tv-toggle-btn" onClick={() => setTvMode(true)}>
-          <Tv size={15} /> Modo TV / Salão
+          <Tv size={15} /> Modo TV / Multi-Lojas
         </button>
         <button className="whatsapp-share-btn" onClick={shareWhatsApp}>
           <Share2 size={15} /> {copiedWhatsApp ? "Copiado!" : "Compartilhar Resumo WhatsApp"}
@@ -455,8 +546,8 @@ function Dashboard({
               <strong>{formatMoney(monthCmvMetrics.revenue)}</strong>
             </div>
             <div>
-              <span>Semanas conferidas</span>
-              <strong>{monthCmvMetrics.weeks} semana{monthCmvMetrics.weeks === 1 ? "" : "s"}</strong>
+              <span>Conferências</span>
+              <strong>{monthCmvMetrics.weeks} registrada{monthCmvMetrics.weeks === 1 ? "" : "s"}</strong>
             </div>
           </div>
         </div>
@@ -872,56 +963,6 @@ function MoneyInput({ label, value, onChange, icon }: { label: string; value: nu
   );
 }
 
-function DetailAccordion({
-  title,
-  total,
-  items,
-  values,
-  onChange,
-}: {
-  title: string;
-  total: number;
-  items: { key: string; label: string }[];
-  values: Record<string, number>;
-  onChange: (key: string, value: number) => void;
-}) {
-  const [open, setOpen] = useState(false), validation = validateDetails(total, values);
-  return (
-    <div className={`detail-accordion ${open ? "is-open" : ""}`}>
-      <button className="accordion-trigger" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span><ChevronDown size={18} /> {title}</span>
-        <small className={total && !validation.matches ? "warning-text" : "muted-text"}>
-          {total ? (validation.matches ? "Detalhamento confere" : `Diferença de ${formatMoney(Math.abs(validation.difference))}`) : "Opcional"}
-        </small>
-      </button>
-      {open && (
-        <div className="accordion-body">
-          {items.map((item) => (
-            <label className="detail-field" key={item.key}>
-              <span>{item.label}</span>
-              <div>
-                <i>R$</i>
-                <input
-                  inputMode="decimal"
-                  value={values[item.key] ? formatMoneyInput(values[item.key]) : ""}
-                  placeholder="0,00"
-                  onChange={(event) => onChange(item.key, parseMoney(event.target.value))}
-                />
-              </div>
-            </label>
-          ))}
-          {total > 0 && !validation.matches && (
-            <div className="validation-box">
-              <span>!</span>
-              <p><strong>O detalhamento não corresponde ao total.</strong> Soma {formatMoney(validation.sum)}, mas o total informado é {formatMoney(total)}.</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function LaunchScreen({
   unit,
   entries,
@@ -940,7 +981,6 @@ function LaunchScreen({
   const [ifood, setIfood] = useState(existing?.ifood || 0);
   const [deliveryDetails, setDeliveryDetails] = useState<Record<string, number>>(existing?.deliveryDetails || {});
   const [ifoodDetails, setIfoodDetails] = useState<Record<string, number>>(existing?.ifoodDetails || {});
-  const [confirm, setConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
@@ -974,7 +1014,6 @@ function LaunchScreen({
       updatedAt: new Date().toISOString(),
     });
     setSaving(false);
-    setConfirm(false);
   };
 
   const syncTakeat = async () => {
@@ -994,11 +1033,17 @@ function LaunchScreen({
     }
   };
 
-  const submit = () => {
-    const dv = validateDetails(delivery, deliveryDetails), iv = validateDetails(ifood, ifoodDetails), used = Object.values(deliveryDetails).some(Boolean) || Object.values(ifoodDetails).some(Boolean);
-    if (used && (!dv.matches || !iv.matches)) setConfirm(true);
-    else void persist();
-  };
+  // Sub-brand calculations
+  const xtudoDelivery = deliveryDetails.xtudo || 0;
+  const house190DeliveryRemaining = Math.max(delivery - xtudoDelivery, 0);
+  const xtudoIfood = ifoodDetails.xtudo || 0;
+  const house190IfoodRemaining = Math.max(ifood - xtudoIfood, 0);
+
+  const frangoDelivery = deliveryDetails.frango || 0;
+  const pizzaDelivery = deliveryDetails.pizza || 0;
+  const burgerDeliveryRemaining = Math.max(delivery - frangoDelivery - pizzaDelivery, 0);
+  const frangoIfood = ifoodDetails.frango || 0;
+  const pizzaIfood = ifoodDetails.pizza || 0;
 
   return (
     <div className="screen-stack narrow-screen">
@@ -1013,6 +1058,7 @@ function LaunchScreen({
           <input type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
         </div>
       </div>
+
       <section className="takeat-sync surface-card">
         <div>
           <span className="takeat-logo">T</span>
@@ -1026,6 +1072,7 @@ function LaunchScreen({
         </button>
         {syncError && <p className="sync-error">{syncError}</p>}
       </section>
+
       <section className="surface-card launch-card">
         <div className="launch-date">
           <span>{formatDateBR(date)}</span>
@@ -1033,8 +1080,8 @@ function LaunchScreen({
         </div>
         <div className="money-fields">
           <MoneyInput label="Salão" value={salao} onChange={setSalao} icon={<UtensilsCrossed size={21} />} />
-          <MoneyInput label="Delivery próprio" value={delivery} onChange={setDelivery} icon={<Truck size={21} />} />
-          <MoneyInput label="iFood" value={ifood} onChange={setIfood} icon={<ShoppingBag size={21} />} />
+          <MoneyInput label="Delivery próprio (Total)" value={delivery} onChange={setDelivery} icon={<Truck size={21} />} />
+          <MoneyInput label="iFood (Total)" value={ifood} onChange={setIfood} icon={<ShoppingBag size={21} />} />
         </div>
         <div className="launch-total">
           <div>
@@ -1051,56 +1098,156 @@ function LaunchScreen({
         </div>
         <ProgressBar value={(total / dailyTarget.total) * 100} />
       </section>
-      <section className="detail-section">
+
+      {/* SEPARAÇÃO DE PRODUTOS / SUB-MARCAS PARA METAS */}
+      <section className="detail-section surface-card" style={{ padding: 20 }}>
         <div className="section-heading">
           <div>
-            <span className="eyebrow">Composição analítica</span>
-            <h2>Detalhamento opcional</h2>
+            <span className="eyebrow">Separação de Produtos para Bonificação</span>
+            <h2>{unit.type === "house190" ? "Faturamento X-Tudo (Opcional)" : "Faturamento Frango e Pizza (Opcional)"}</h2>
+            <p>
+              {unit.type === "house190"
+                ? "Informe apenas o que for do cardápio X-Tudo. O restante do Delivery e iFood é atribuído automaticamente à House190!"
+                : "Informe o valor vendido de Frango e Pizza. O restante do Delivery é atribuído automaticamente aos Lanches / Burger!"}
+            </p>
           </div>
         </div>
-        <DetailAccordion
-          title="Detalhar Delivery"
-          total={delivery}
-          items={unit.channels.delivery.details}
-          values={deliveryDetails}
-          onChange={(key, value) => setDeliveryDetails((current) => ({ ...current, [key]: value }))}
-        />
-        <DetailAccordion
-          title="Detalhar iFood"
-          total={ifood}
-          items={unit.channels.ifood.details}
-          values={ifoodDetails}
-          onChange={(key, value) => setIfoodDetails((current) => ({ ...current, [key]: value }))}
-        />
+
+        {unit.type === "house190" ? (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+              <label className="money-field">
+                <span className="field-icon"><Truck size={20} /></span>
+                <span className="field-copy">
+                  <b>X-Tudo no Delivery Próprio</b>
+                  <small>House190 Delivery fica: {formatMoney(house190DeliveryRemaining)}</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={xtudoDelivery ? formatMoneyInput(xtudoDelivery) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setDeliveryDetails({ ...deliveryDetails, xtudo: parseMoney(e.target.value) })}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><ShoppingBag size={20} /></span>
+                <span className="field-copy">
+                  <b>X-Tudo no iFood</b>
+                  <small>House190 iFood fica: {formatMoney(house190IfoodRemaining)}</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={xtudoIfood ? formatMoneyInput(xtudoIfood) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setIfoodDetails({ ...ifoodDetails, xtudo: parseMoney(e.target.value) })}
+                  />
+                </span>
+              </label>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+              <label className="money-field">
+                <span className="field-icon"><Truck size={20} /></span>
+                <span className="field-copy">
+                  <b>Frango Delivery</b>
+                  <small>Vendas de Chicken</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={frangoDelivery ? formatMoneyInput(frangoDelivery) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setDeliveryDetails({ ...deliveryDetails, frango: parseMoney(e.target.value) })}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><ShoppingBag size={20} /></span>
+                <span className="field-copy">
+                  <b>Frango iFood</b>
+                  <small>Vendas de Chicken</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={frangoIfood ? formatMoneyInput(frangoIfood) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setIfoodDetails({ ...ifoodDetails, frango: parseMoney(e.target.value) })}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><Truck size={20} /></span>
+                <span className="field-copy">
+                  <b>Pizza Delivery</b>
+                  <small>Vendas de Pizza</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={pizzaDelivery ? formatMoneyInput(pizzaDelivery) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setDeliveryDetails({ ...deliveryDetails, pizza: parseMoney(e.target.value) })}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><ShoppingBag size={20} /></span>
+                <span className="field-copy">
+                  <b>Pizza iFood</b>
+                  <small>Vendas de Pizza</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={pizzaIfood ? formatMoneyInput(pizzaIfood) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setIfoodDetails({ ...ifoodDetails, pizza: parseMoney(e.target.value) })}
+                  />
+                </span>
+              </label>
+            </div>
+            <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
+              Burger / Lanches Delivery restante: <b>{formatMoney(burgerDeliveryRemaining)}</b>
+            </p>
+          </div>
+        )}
       </section>
+
       <div className="form-note">
         <ShieldCheck size={18} />
         <p>Frete, brindes, cancelamentos, estornos e receitas de terceiros não devem entrar nos valores.</p>
       </div>
-      <button className="primary-button save-button" onClick={submit} disabled={saving || total <= 0}>
+
+      <button className="primary-button save-button" onClick={() => void persist()} disabled={saving || total <= 0}>
         <Save size={19} />
         {saving ? "Salvando..." : existing ? "Atualizar vendas" : "Salvar vendas"}
       </button>
-      {confirm && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="confirm-modal surface-card">
-            <button className="modal-close" onClick={() => setConfirm(false)} aria-label="Fechar"><X size={20} /></button>
-            <span className="modal-icon">!</span>
-            <h2>Detalhamento diferente do total</h2>
-            <p>Uma subdivisão não fecha com o valor principal. O faturamento continuará considerando apenas os canais principais, sem duplicar valores.</p>
-            <div>
-              <button className="secondary-button" onClick={() => setConfirm(false)}>Corrigir valores</button>
-              <button className="danger-confirm" onClick={() => void persist()}>Confirmar mesmo assim</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 function HistoryScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntry[] }) {
-  const [period, setPeriod] = useState("month"), unitEntries = entries.filter((entry) => entry.unitId === unit.id).slice().reverse(), visible = period === "today" ? unitEntries.slice(0, 1) : period === "7" ? unitEntries.slice(0, 7) : unitEntries, total = visible.reduce((sum, entry) => sum + entryTotal(entry), 0);
+  const [period, setPeriod] = useState("month");
+  const unitEntries = entries.filter((entry) => entry.unitId === unit.id).slice().reverse();
+  const visible = period === "today" ? unitEntries.slice(0, 1) : period === "7" ? unitEntries.slice(0, 7) : unitEntries;
+  const total = visible.reduce((sum, entry) => sum + entryTotal(entry), 0);
+
   return (
     <div className="screen-stack">
       <div className="page-title">
@@ -1547,10 +1694,7 @@ function AppNavigation({
         </div>
         <nav>
           {role === "admin" && (
-            <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>
-              <Building2 size={20} />
-              <span>Visão geral</span>
-            </button>
+            <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}><Building2 size={20} /><span>Visão geral</span></button>
           )}
           {items.map((item) => (
             <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>
@@ -1663,7 +1807,6 @@ export default function HomePage() {
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
     const dates = monthDatesUntil(currentDate), synchronized: SalesEntry[] = [], failures: string[] = [];
     let importedSessions = 0, ignoredSessions = 0;
-    const ignoredReasons = { open: 0, canceled: 0, withoutValue: 0 };
     for (const unitId of unitIds) {
       for (let index = 0; index < dates.length; index += 3) {
         const batchDates = dates.slice(index, index + 3);
@@ -1769,7 +1912,7 @@ export default function HomePage() {
           }
         }
         setAuthState("signedin");
-        const automaticUnits = userProfile.role === "admin" ? [effectiveUnits.find((item) => item.id === "house190-teixeira")?.id || effectiveUnits[0].id] : permitted;
+        const automaticUnits = userProfile.role === "admin" ? effectiveUnits.map((u) => u.id) : permitted;
         setPermittedUnits(permitted);
         void synchronizeMonth(automaticUnits).catch((error) =>
           setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Erro ao sincronizar Takeat" })
@@ -1922,13 +2065,22 @@ export default function HomePage() {
           {view === "dashboard" && (
             <Dashboard
               unit={unit}
+              units={units}
               entries={entries}
               cmvRecords={cmvRecords}
               freelancers={freelancers}
               onNavigate={setView}
               syncStatus={syncStatus}
-              onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits)}
+              onSync={() => void synchronizeMonth(role === "admin" ? units.map((u) => u.id) : permittedUnits)}
               onOpenFreelancers={() => setFreelancersModalOpen(true)}
+            />
+          )}
+          {view === "launch" && (
+            <LaunchScreen
+              unit={unit}
+              entries={entries}
+              onSave={save}
+              onSync={syncTakeat}
             />
           )}
           {view === "history" && <HistoryScreen unit={unit} entries={entries} />}

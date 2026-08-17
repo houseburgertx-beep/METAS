@@ -104,7 +104,6 @@ export function CmvScreen({
 }) {
   const [activeTab, setActiveTab] = useState<"weekly" | "monthly">("weekly");
   const initialWeek = weekFromDate(todayIso());
-  const [selectedDate, setSelectedDate] = useState(todayIso());
   const [period, setPeriod] = useState(initialWeek);
   const [costs, setCosts] = useState<CmvCosts>(emptyCmvCosts());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -116,24 +115,39 @@ export function CmvScreen({
   const [ai, setAi] = useState<AIResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
-  // Weekly calculations
-  const revenue = useMemo(() => revenueForPeriod(sales, unit.id, period.weekStart, period.weekEnd), [sales, unit.id, period]);
-  const metrics = useMemo(() => calculateCmv(costs, revenue, unit.cmvTargetPercent), [costs, revenue, unit.cmvTargetPercent]);
+  // Period calculations
+  const revenue = useMemo(
+    () => revenueForPeriod(sales, unit.id, period.weekStart, period.weekEnd),
+    [sales, unit.id, period]
+  );
+  const metrics = useMemo(
+    () => calculateCmv(costs, revenue, unit.cmvTargetPercent),
+    [costs, revenue, unit.cmvTargetPercent]
+  );
   const hasCosts = metrics.totalCost > 0;
   const unitRecords = records.filter((record) => record.unitId === unit.id);
 
   const liveRevenue = (record: CmvEntry) => {
-    const hasLoadedPeriod = sales.some((sale) => sale.unitId === record.unitId && sale.date >= record.weekStart && sale.date <= record.weekEnd);
+    const hasLoadedPeriod = sales.some(
+      (sale) => sale.unitId === record.unitId && sale.date >= record.weekStart && sale.date <= record.weekEnd
+    );
     return hasLoadedPeriod ? revenueForPeriod(sales, record.unitId, record.weekStart, record.weekEnd) : record.revenue;
   };
   const liveRecords = records.map((record) => ({ ...record, revenue: liveRevenue(record) }));
 
   // Monthly calculations for current unit
-  const currentUnitMonthMetrics = useMemo(() => monthlyCmv(liveRecords, unit, selectedMonth), [liveRecords, unit, selectedMonth]);
+  const currentUnitMonthMetrics = useMemo(
+    () => monthlyCmv(liveRecords, unit, selectedMonth),
+    [liveRecords, unit, selectedMonth]
+  );
+  // Default 4 clean weeks of the selected month
   const monthWeeks = useMemo(() => weeksInMonth(selectedMonth), [selectedMonth]);
 
   // Monthly across all units
-  const monthlyByUnit = units.map((item) => ({ unit: item, metrics: monthlyCmv(liveRecords, item, selectedMonth) }));
+  const monthlyByUnit = units.map((item) => ({
+    unit: item,
+    metrics: monthlyCmv(liveRecords, item, selectedMonth),
+  }));
 
   // Smart Features: Semáforo de Bônus e Detecção de Anomalias
   const bonusImpact = useMemo(
@@ -141,28 +155,28 @@ export function CmvScreen({
     [metrics, revenue, unit.cmvTargetPercent]
   );
   const anomalies = useMemo(() => detectCostAnomalies(costs, unitRecords), [costs, unitRecords]);
-  const hasAnyAnomaly = anomalies.some((a) => a.isAnomaly);
 
-  const selectDate = (date: string) => {
-    const next = weekFromDate(date);
-    const existing = unitRecords.find((record) => record.weekStart === next.weekStart);
-    setSelectedDate(date);
-    setPeriod(next);
-    setSelectedMonth(next.weekEnd.slice(0, 7));
+  const setCustomPeriod = (newStart: string, newEnd: string) => {
+    const existing = unitRecords.find((record) => record.weekStart === newStart);
+    setPeriod({ weekStart: newStart, weekEnd: newEnd });
+    setSelectedMonth(newStart.slice(0, 7));
     setEditingId(existing?.id || null);
-    setCosts(existing ? {
-      rawMaterials: existing.rawMaterials,
-      productionCenter: existing.productionCenter,
-      beverages: existing.beverages,
-      packaging: existing.packaging,
-    } : emptyCmvCosts());
+    setCosts(
+      existing
+        ? {
+            rawMaterials: existing.rawMaterials,
+            productionCenter: existing.productionCenter,
+            beverages: existing.beverages,
+            packaging: existing.packaging,
+          }
+        : emptyCmvCosts()
+    );
     setSaved(false);
     setSaveError("");
     setAi(null);
   };
 
   const editRecord = (record: CmvEntry) => {
-    setSelectedDate(record.weekStart);
     setPeriod({ weekStart: record.weekStart, weekEnd: record.weekEnd });
     setSelectedMonth(record.referenceMonth || record.weekEnd.slice(0, 7));
     setEditingId(record.id);
@@ -180,15 +194,18 @@ export function CmvScreen({
 
   const openWeek = (weekStart: string, weekEnd: string) => {
     const existing = unitRecords.find((record) => record.weekStart === weekStart);
-    setSelectedDate(weekStart);
     setPeriod({ weekStart, weekEnd });
     setEditingId(existing?.id || null);
-    setCosts(existing ? {
-      rawMaterials: existing.rawMaterials,
-      productionCenter: existing.productionCenter,
-      beverages: existing.beverages,
-      packaging: existing.packaging,
-    } : emptyCmvCosts());
+    setCosts(
+      existing
+        ? {
+            rawMaterials: existing.rawMaterials,
+            productionCenter: existing.productionCenter,
+            beverages: existing.beverages,
+            packaging: existing.packaging,
+          }
+        : emptyCmvCosts()
+    );
     setSaved(false);
     setSaveError("");
     setActiveTab("weekly");
@@ -205,7 +222,7 @@ export function CmvScreen({
         unitId: unit.id,
         weekStart: period.weekStart,
         weekEnd: period.weekEnd,
-        referenceMonth: period.weekEnd.slice(0, 7),
+        referenceMonth: period.weekStart.slice(0, 7),
         revenue,
         targetPercent: unit.cmvTargetPercent,
         ...costs,
@@ -220,7 +237,7 @@ export function CmvScreen({
       console.error("Erro ao salvar conferência de CMV:", err);
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("permission-denied") || msg.includes("permissões")) {
-        setSaveError("Não foi possível salvar o CMV por falta de permissão no banco de dados. Verifique as regras do Firestore.");
+        setSaveError("Não foi possível salvar o CMV por falta de permissão no banco de dados.");
       } else if (msg) {
         setSaveError(`Não foi possível salvar o CMV: ${msg}`);
       } else {
@@ -252,22 +269,27 @@ export function CmvScreen({
     setAiLoading(true);
     try {
       const result = await requestAiAnalysis({
-        solicitacao: activeTab === "weekly"
-          ? "Analisar CMV semanal e recomendar ações de redução de custo"
-          : "Analisar CMV consolidado do mês e recomendar plano de ação",
+        solicitacao:
+          activeTab === "weekly"
+            ? "Analisar CMV semanal e recomendar ações de redução de custo"
+            : "Analisar CMV consolidado do mês e recomendar plano de ação",
         unidade: unit.name,
         periodo: activeTab === "weekly" ? `${period.weekStart} a ${period.weekEnd}` : selectedMonth,
         faturamentoTakeat: activeTab === "weekly" ? revenue : currentUnitMonthMetrics.revenue,
         cmvPercentual: activeTab === "weekly" ? metrics.percentage : currentUnitMonthMetrics.percentage,
         metaCmvPercentual: unit.cmvTargetPercent,
-        desvioPontosPercentuais: activeTab === "weekly" ? metrics.variancePoints : currentUnitMonthMetrics.variancePoints,
+        desvioPontosPercentuais:
+          activeTab === "weekly" ? metrics.variancePoints : currentUnitMonthMetrics.variancePoints,
         custoTotal: activeTab === "weekly" ? metrics.totalCost : currentUnitMonthMetrics.totalCost,
-        custos: activeTab === "weekly" ? costs : {
-          rawMaterials: currentUnitMonthMetrics.rawMaterials,
-          productionCenter: currentUnitMonthMetrics.productionCenter,
-          beverages: currentUnitMonthMetrics.beverages,
-          packaging: currentUnitMonthMetrics.packaging,
-        },
+        custos:
+          activeTab === "weekly"
+            ? costs
+            : {
+                rawMaterials: currentUnitMonthMetrics.rawMaterials,
+                productionCenter: currentUnitMonthMetrics.productionCenter,
+                beverages: currentUnitMonthMetrics.beverages,
+                packaging: currentUnitMonthMetrics.packaging,
+              },
       });
       setAi(result);
     } catch {
@@ -294,7 +316,7 @@ export function CmvScreen({
           : "Aguardando faturamento";
 
   const verdictDetail = !hasCosts
-    ? "Preencha os custos da semana"
+    ? "Preencha os custos do período"
     : metrics.variancePoints <= 0
       ? `${formatPercent(Math.abs(metrics.variancePoints))} abaixo do limite`
       : `${formatPercent(metrics.variancePoints)} acima do limite`;
@@ -310,7 +332,7 @@ export function CmvScreen({
           onClick={() => setActiveTab("weekly")}
         >
           <Calendar size={18} />
-          <span>Visão Semanal (Conferência)</span>
+          <span>Conferência de Período / Semana</span>
         </button>
         <button
           role="tab"
@@ -319,35 +341,49 @@ export function CmvScreen({
           onClick={() => setActiveTab("monthly")}
         >
           <Gauge size={18} />
-          <span>Consolidado do Mês</span>
+          <span>Consolidado do Mês (4 Semanas)</span>
         </button>
       </div>
 
       {activeTab === "weekly" ? (
         <>
-          {/* Hero Semanal */}
+          {/* Hero de Conferência com Datas Flexíveis */}
           <section className="cmv-hero">
             <div className="cmv-hero-orb cmv-hero-orb-one" />
             <div className="cmv-hero-orb cmv-hero-orb-two" />
             <div className="cmv-hero-copy">
               <span className="cmv-kicker"><Gauge size={15} /> Inteligência de custos</span>
-              <h1>CMV semanal</h1>
-              <p>Domingo a sábado, com faturamento Takeat sincronizado.</p>
-              <label className="cmv-date-control">
-                <CalendarDays size={17} />
-                <span>Data da conferência</span>
-                <input
-                  aria-label="Data da conferência"
-                  type="date"
-                  value={selectedDate}
-                  onChange={(event) => selectDate(event.target.value)}
-                />
-              </label>
+              <h1>Conferência de CMV</h1>
+              <p>Escolha o período livremente com faturamento Takeat sincronizado.</p>
+              
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "10px 0" }}>
+                <label className="cmv-date-control">
+                  <CalendarDays size={17} />
+                  <span>Data Início</span>
+                  <input
+                    aria-label="Data de início"
+                    type="date"
+                    value={period.weekStart}
+                    onChange={(event) => setCustomPeriod(event.target.value, period.weekEnd)}
+                  />
+                </label>
+                <label className="cmv-date-control">
+                  <CalendarDays size={17} />
+                  <span>Data Fim</span>
+                  <input
+                    aria-label="Data de fim"
+                    type="date"
+                    value={period.weekEnd}
+                    onChange={(event) => setCustomPeriod(period.weekStart, event.target.value)}
+                  />
+                </label>
+              </div>
+
               <div className="cmv-period-inline">
                 <span>{formatDateBR(period.weekStart)}</span>
                 <ChevronRight size={15} />
                 <span>{formatDateBR(period.weekEnd)}</span>
-                <b>7 dias</b>
+                <b>Período selecionado</b>
               </div>
             </div>
             <div className="cmv-hero-result">
@@ -409,8 +445,8 @@ export function CmvScreen({
               <div className="section-heading">
                 <div>
                   <span className="eyebrow">Composição do custo</span>
-                  <h2>{editingId ? "Editar conferência" : "Lançar custos da semana"}</h2>
-                  <p>Informe o valor gasto em cada categoria durante a semana de 7 dias.</p>
+                  <h2>{editingId ? "Editar conferência" : "Lançar custos do período"}</h2>
+                  <p>Informe o valor gasto em cada categoria durante o período.</p>
                 </div>
                 {editingId && <span className="status-badge status-warning"><ClipboardEdit size={14} /> Editando</span>}
               </div>
@@ -423,7 +459,7 @@ export function CmvScreen({
                       <span className="cmv-cost-icon">{field.icon}</span>
                       <span className="cmv-cost-name">
                         <b>{field.label}</b>
-                        <small>Acumulado de 7 dias</small>
+                        <small>Acumulado do período</small>
                       </span>
                       <div className="cmv-money-input">
                         <i>R$</i>
@@ -454,7 +490,7 @@ export function CmvScreen({
 
               <div className="cmv-save-row">
                 <div>
-                  <span>Custo total da semana</span>
+                  <span>Custo total do período</span>
                   <strong>{formatMoney(metrics.totalCost)}</strong>
                   <small>{hasCosts && revenue > 0 ? `${formatPercent(metrics.percentage)} do faturamento Takeat` : "Atualizado em tempo real"}</small>
                 </div>
@@ -554,13 +590,13 @@ export function CmvScreen({
             </section>
           )}
 
-          {/* Histórico Semanal */}
+          {/* Histórico das conferências cadastradas */}
           <section className="surface-card cmv-history">
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Histórico da unidade</span>
-                <h2>Semanas conferidas</h2>
-                <p>Abra qualquer semana para revisar ou editar os lançamentos.</p>
+                <h2>Conferências cadastradas ({unitRecords.length})</h2>
+                <p>Abra qualquer conferência para revisar ou editar os lançamentos.</p>
               </div>
             </div>
             {unitRecords.length ? (
@@ -587,7 +623,7 @@ export function CmvScreen({
                 <span><WalletCards size={24} /></span>
                 <div>
                   <strong>Nenhuma conferência salva ainda</strong>
-                  <p>Preencha os custos da semana acima e clique em salvar para começar a registrar o histórico.</p>
+                  <p>Preencha os custos do período acima e clique em salvar para registrar o histórico.</p>
                 </div>
                 <TrendingDown size={22} />
               </div>
@@ -595,26 +631,28 @@ export function CmvScreen({
           </section>
         </>
       ) : (
-        /* VISÃO MENSAL CONSOLIDADA */
+        /* VISÃO MENSAL CONSOLIDADA (4 SEMANAS PADRÃO) */
         <>
           {/* Header do Mês com Seletor */}
           <section className="cmv-month-hero surface-card">
             <div className="cmv-month-hero-head">
               <div>
                 <span className="eyebrow">Consolidado Mensal</span>
-                <h1>Performance do Mês</h1>
-                <p>Visão integrada de todas as semanas do mês selecionado.</p>
+                <h1>Performance do Mês (4 Semanas)</h1>
+                <p>Visão integrada das 4 semanas de {selectedMonth}.</p>
               </div>
-              <label className="cmv-month-control">
-                <CalendarDays size={18} />
-                <span>Mês de referência</span>
-                <input
-                  aria-label="Mês do consolidado"
-                  type="month"
-                  value={selectedMonth}
-                  onChange={(event) => setSelectedMonth(event.target.value)}
-                />
-              </label>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <label className="cmv-month-control">
+                  <CalendarDays size={18} />
+                  <span>Mês de referência</span>
+                  <input
+                    aria-label="Mês do consolidado"
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(event) => setSelectedMonth(event.target.value)}
+                  />
+                </label>
+              </div>
             </div>
 
             {/* KPIs do Mês */}
@@ -641,7 +679,7 @@ export function CmvScreen({
               <article className="cmv-kpi-card">
                 <span>Custo Total do Mês</span>
                 <strong>{formatMoney(currentUnitMonthMetrics.totalCost)}</strong>
-                <small>{currentUnitMonthMetrics.weeks} semana{currentUnitMonthMetrics.weeks === 1 ? "" : "s"} somada{currentUnitMonthMetrics.weeks === 1 ? "" : "s"}</small>
+                <small>{currentUnitMonthMetrics.weeks} conferência{currentUnitMonthMetrics.weeks === 1 ? "" : "s"} somada{currentUnitMonthMetrics.weeks === 1 ? "" : "s"}</small>
               </article>
 
               <article className="cmv-kpi-card">
@@ -685,18 +723,28 @@ export function CmvScreen({
             </div>
           </section>
 
-          {/* Lista de Semanas do Mês com Ação de Abrir */}
+          {/* Lista de 4 Semanas do Mês */}
           <section className="surface-card cmv-weeks-table-card">
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Cronograma do Mês</span>
-                <h2>Semanas do Mês Selecionado</h2>
-                <p>Acompanhe e lance a conferência semana a semana.</p>
+                <h2>4 Semanas do Mês Selecionado</h2>
+                <p>Acompanhe e lance a conferência das 4 semanas de {selectedMonth}.</p>
               </div>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setActiveTab("weekly");
+                  setCosts(emptyCmvCosts());
+                  setEditingId(null);
+                }}
+              >
+                <PlusCircle size={16} /> Cadastrar Período Customizado
+              </button>
             </div>
             <div className="cmv-weeks-list">
               {monthWeeks.map((w) => {
-                const rec = unitRecords.find((r) => r.weekStart === w.weekStart);
+                const rec = unitRecords.find((r) => r.weekStart === w.weekStart || (r.weekStart >= w.weekStart && r.weekStart <= w.weekEnd));
                 const weekRev = revenueForPeriod(sales, unit.id, w.weekStart, w.weekEnd);
                 const weekMetrics = rec ? calculateCmv(rec, weekRev || rec.revenue, unit.cmvTargetPercent) : null;
                 const isConferred = Boolean(rec && weekMetrics && weekMetrics.totalCost > 0);
@@ -743,7 +791,7 @@ export function CmvScreen({
             </div>
           </section>
 
-          {/* Comparativo Global de Unidades (se admin) */}
+          {/* Comparativo Global de Unidades */}
           <section className="surface-card cmv-monthly">
             <div className="section-heading">
               <div>
@@ -760,7 +808,7 @@ export function CmvScreen({
                     <span className="cmv-unit-index">0{index + 1}</span>
                     <div className="cmv-unit-name">
                       <strong>{item.shortName}</strong>
-                      <span>{hasMonthData ? `${itemMetrics.weeks} semana${itemMetrics.weeks === 1 ? "" : "s"} somada${itemMetrics.weeks === 1 ? "" : "s"}` : "Sem conferências"}</span>
+                      <span>{hasMonthData ? `${itemMetrics.weeks} conferência${itemMetrics.weeks === 1 ? "" : "s"}` : "Sem conferências"}</span>
                     </div>
                     <div className="cmv-unit-metric">
                       <b className={hasMonthData ? (itemMetrics.percentage <= item.cmvTargetPercent ? "positive" : "negative") : "neutral"}>
@@ -780,7 +828,6 @@ export function CmvScreen({
                 );
               })}
             </div>
-            {role !== "admin" && <p className="cmv-access-note">Seu perfil exibe o comparativo consolidado.</p>}
           </section>
         </>
       )}

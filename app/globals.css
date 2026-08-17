@@ -850,143 +850,192 @@ button { -webkit-tap-highlight-color: transparent; }
   background: var(--surface-secondary);
 }
 
-/* TV Mode Overlay */
+/* TV Mode Overlay Multi-Lojas */
 .tv-mode-overlay {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: #141213;
+  background: #121011;
   color: #fff;
-  padding: 32px 48px;
+  padding: 24px 36px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   overflow: auto;
 }
-.tv-header {
+.tv-multi-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 20px;
+  flex-wrap: wrap;
 }
 .tv-brand-block {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 .tv-brand-block h1 {
-  font-size: 28px;
+  font-size: 24px;
   margin: 0;
   letter-spacing: -0.03em;
 }
 .tv-brand-block span {
   color: #a8a29e;
-  font-size: 14px;
+  font-size: 13px;
+}
+.tv-top-actions-cluster {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tv-network-summary {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.tv-network-kpi span {
+  font-size: 10px;
+  color: #a8a29e;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  display: block;
+}
+.tv-network-kpi strong {
+  font-size: 26px;
+  letter-spacing: -0.04em;
+  color: #fff;
+  display: block;
+}
+.tv-network-kpi small {
+  font-size: 11px;
+  color: #a8a29e;
 }
 .tv-exit-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.12);
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
-  border: 1px solid rgba(255,255,255,0.2);
-  padding: 10px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 18px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 .tv-exit-btn:hover {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.2);
 }
-.tv-kpi-main {
-  text-align: center;
-  padding: 24px 0;
+.tv-multi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  margin: 20px 0;
+  flex: 1;
 }
-.tv-kpi-main span {
-  font-size: 16px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #a8a29e;
-  font-weight: 800;
-}
-.tv-kpi-val {
-  font-size: 76px;
-  font-weight: 900;
-  letter-spacing: -0.05em;
-  line-height: 1.1;
-  margin: 8px 0;
-  color: #fff;
-}
-.tv-target-badge {
-  display: inline-block;
-  padding: 8px 18px;
-  border-radius: 999px;
-  font-size: 18px;
-  font-weight: 800;
-  background: rgba(255,255,255,0.08);
-}
-.tv-progress-container {
-  max-width: 900px;
-  margin: 18px auto 0;
-  height: 14px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 999px;
+.tv-unit-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  position: relative;
   overflow: hidden;
 }
-.tv-progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--brand), #ff4d79);
-  transition: width 0.5s ease;
+.tv-unit-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--brand);
 }
-.tv-channels-grid {
+.tv-unit-card.unit-foodpark::before {
+  background: #f59e0b;
+}
+.tv-unit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.tv-unit-head h2 {
+  font-size: 20px;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.tv-unit-head span {
+  font-size: 11px;
+  color: #a8a29e;
+}
+.tv-unit-main-val {
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  color: #fff;
+  margin-top: 4px;
+}
+.tv-unit-today-box {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+.tv-unit-today-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+.tv-unit-today-head strong {
+  font-size: 18px;
+}
+.tv-unit-channels {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-}
-.tv-channel-card {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  padding: 24px;
-  display: grid;
   gap: 8px;
 }
-.tv-channel-card span {
-  font-size: 14px;
-  color: #a8a29e;
-  font-weight: 700;
-}
-.tv-channel-card strong {
-  font-size: 32px;
-  letter-spacing: -0.03em;
-}
-.tv-channel-card small {
-  font-size: 13px;
-  color: #a8a29e;
-}
-.tv-footer-stats {
-  display: flex;
-  justify-content: space-around;
-  padding-top: 20px;
-  border-top: 1px solid rgba(255,255,255,0.1);
-}
-.tv-footer-stats div {
+.tv-unit-chan-tile {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 8px 10px;
+  border-radius: 8px;
   text-align: center;
 }
-.tv-footer-stats span {
-  display: block;
-  font-size: 12px;
+.tv-unit-chan-tile span {
+  font-size: 9px;
   color: #a8a29e;
-  text-transform: uppercase;
-}
-.tv-footer-stats strong {
   display: block;
-  font-size: 22px;
-  margin-top: 4px;
+}
+.tv-unit-chan-tile strong {
+  font-size: 13px;
+  display: block;
+  margin-top: 2px;
+}
+.tv-unit-footer {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: #a8a29e;
+}
+.tv-unit-footer strong {
+  color: #fff;
+  font-size: 12px;
 }
 
 /* Freelancers Manager Widget & Modal */

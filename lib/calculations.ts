@@ -112,23 +112,43 @@ export function calculateBonus(
 ) {
   const relevant = entries.filter((entry) => entry.unitId === unit.id);
   const salao = relevant.reduce((sum, entry) => sum + entry.salao, 0);
-  const details = (channel: "deliveryDetails" | "ifoodDetails", key: string) =>
-    relevant.reduce((sum, entry) => sum + (entry[channel][key] || 0), 0);
-  const categories = [
-    { label: "Salão", realized: salao, goal: unit.channels.salao.goal, bonus: unit.channels.salao.bonus },
-    ...unit.channels.delivery.details.filter((d) => d.goal && d.bonus).map((d) => ({
-      label: d.label,
-      realized: details("deliveryDetails", d.key),
-      goal: d.goal!,
-      bonus: d.bonus!,
-    })),
-    ...unit.channels.ifood.details.filter((d) => d.goal && d.bonus).map((d) => ({
-      label: d.label,
-      realized: details("ifoodDetails", d.key),
-      goal: d.goal!,
-      bonus: d.bonus!,
-    })),
-  ];
+  const totalDelivery = relevant.reduce((sum, entry) => sum + entry.delivery, 0);
+  const totalIfood = relevant.reduce((sum, entry) => sum + entry.ifood, 0);
+
+  const sumDetail = (channel: "deliveryDetails" | "ifoodDetails", key: string) =>
+    relevant.reduce((sum, entry) => sum + (entry[channel]?.[key] || 0), 0);
+
+  let categories: Array<{ label: string; realized: number; goal: number; bonus: number }> = [];
+
+  if (unit.type === "house190") {
+    const xtudoDelivery = sumDetail("deliveryDetails", "xtudo");
+    const house190Delivery = Math.max(totalDelivery - xtudoDelivery, 0);
+    const xtudoIfood = sumDetail("ifoodDetails", "xtudo");
+    const house190Ifood = Math.max(totalIfood - xtudoIfood, 0);
+
+    categories = [
+      { label: "Salão", realized: salao, goal: unit.channels.salao.goal, bonus: unit.channels.salao.bonus },
+      { label: "House190 Delivery", realized: house190Delivery, goal: 70000, bonus: 500 },
+      { label: "X-Tudo Delivery", realized: xtudoDelivery, goal: 10000, bonus: 250 },
+      { label: "House190 iFood", realized: house190Ifood, goal: 45000, bonus: 500 },
+      { label: "X-Tudo iFood", realized: xtudoIfood, goal: 5000, bonus: 250 },
+    ];
+  } else {
+    // House Food Park
+    const frangoDelivery = sumDetail("deliveryDetails", "frango");
+    const pizzaDelivery = sumDetail("deliveryDetails", "pizza");
+    const burgerDelivery = Math.max(totalDelivery - frangoDelivery - pizzaDelivery, 0);
+    const frangoIfood = sumDetail("ifoodDetails", "frango");
+    const pizzaIfood = sumDetail("ifoodDetails", "pizza");
+
+    categories = [
+      { label: "Salão", realized: salao, goal: unit.channels.salao.goal, bonus: unit.channels.salao.bonus },
+      { label: "Burger / Lanches Delivery", realized: burgerDelivery, goal: 40000, bonus: 500 },
+      { label: "Frango (Delivery + iFood)", realized: frangoDelivery + frangoIfood, goal: 20000, bonus: 250 },
+      { label: "Pizza (Delivery + iFood)", realized: pizzaDelivery + pizzaIfood, goal: 30000, bonus: 250 },
+    ];
+  }
+
   const reached = categories.filter((category) => category.realized >= category.goal);
   const cmvBlocked = operating.cmvPercent > 35;
   const minimumBlocked = reached.length < 2;

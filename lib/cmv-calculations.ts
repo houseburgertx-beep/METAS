@@ -44,49 +44,34 @@ export function calculateCmv(costs: CmvCosts, revenue: number, targetPercent: nu
 }
 
 export function monthlyCmv(records: CmvEntry[], unit: UnitConfig, month: string) {
-  const selected = records.filter((record) => record.unitId === unit.id && record.referenceMonth === month);
-  const costs = selected.reduce<CmvCosts>((sum, record) => ({
-    rawMaterials: sum.rawMaterials + (record.rawMaterials || 0),
-    productionCenter: sum.productionCenter + (record.productionCenter || 0),
-    beverages: sum.beverages + (record.beverages || 0),
-    packaging: sum.packaging + (record.packaging || 0),
-  }), emptyCmvCosts());
+  const selected = records.filter(
+    (record) =>
+      record.unitId === unit.id &&
+      (record.referenceMonth === month || record.weekStart.startsWith(month) || record.weekEnd.startsWith(month))
+  );
+  const costs = selected.reduce<CmvCosts>(
+    (sum, record) => ({
+      rawMaterials: sum.rawMaterials + (record.rawMaterials || 0),
+      productionCenter: sum.productionCenter + (record.productionCenter || 0),
+      beverages: sum.beverages + (record.beverages || 0),
+      packaging: sum.packaging + (record.packaging || 0),
+    }),
+    emptyCmvCosts()
+  );
   const totalRevenue = selected.reduce((sum, record) => sum + (record.revenue || 0), 0);
   return { ...calculateCmv(costs, totalRevenue, unit.cmvTargetPercent), weeks: selected.length };
 }
 
 export function weeksInMonth(monthIso: string): Array<{ weekStart: string; weekEnd: string; label: string; weekNumber: number }> {
   const [year, month] = monthIso.split("-").map(Number);
-  const weeks: Array<{ weekStart: string; weekEnd: string; label: string; weekNumber: number }> = [];
-  const firstDay = new Date(year, month - 1, 1);
-  const lastDay = new Date(year, month, 0);
+  const lastDayNum = new Date(year, month, 0).getDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const prefix = `${year}-${pad(month)}`;
 
-  // Find the Sunday of the week containing firstDay
-  const current = new Date(firstDay);
-  current.setDate(firstDay.getDate() - firstDay.getDay());
-
-  let weekNum = 1;
-  while (current <= lastDay || (current.getMonth() === month - 1)) {
-    const start = new Date(current);
-    const end = new Date(current);
-    end.setDate(start.getDate() + 6);
-
-    const endMonth = end.getMonth() + 1;
-    const endYear = end.getFullYear();
-    const endMonthIso = `${endYear}-${String(endMonth).padStart(2, "0")}`;
-
-    if (endMonthIso === monthIso || (start.getMonth() + 1 === month && start.getFullYear() === year)) {
-      weeks.push({
-        weekStart: isoLocalDate(start),
-        weekEnd: isoLocalDate(end),
-        label: `Semana ${weekNum}`,
-        weekNumber: weekNum,
-      });
-      weekNum++;
-    }
-
-    current.setDate(current.getDate() + 7);
-    if (current > lastDay && end.getMonth() !== month - 1) break;
-  }
-  return weeks;
+  return [
+    { weekStart: `${prefix}-01`, weekEnd: `${prefix}-07`, label: "Semana 1 (01 a 07)", weekNumber: 1 },
+    { weekStart: `${prefix}-08`, weekEnd: `${prefix}-14`, label: "Semana 2 (08 a 14)", weekNumber: 2 },
+    { weekStart: `${prefix}-15`, weekEnd: `${prefix}-21`, label: "Semana 3 (15 a 21)", weekNumber: 3 },
+    { weekStart: `${prefix}-22`, weekEnd: `${prefix}-${pad(lastDayNum)}`, label: `Semana 4 (22 a ${pad(lastDayNum)})`, weekNumber: 4 },
+  ];
 }
