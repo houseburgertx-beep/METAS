@@ -480,8 +480,8 @@ function SubBrandModal({
 
   const burgerDeliveryRemaining = Math.max(currentTotalDelivery - frangoDelivery - pizzaDelivery, 0);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSaving(true);
     try {
       const baseEntry: SalesEntry = currentEntry || {
@@ -517,44 +517,34 @@ function SubBrandModal({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="confirm-modal surface-card" style={{ maxWidth: 640 }}>
-        <button className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
-        <span className="modal-icon" style={{ background: "var(--brand)", color: "#fff" }}><Utensils size={24} /></span>
-        <h2>Lançar Separação de Sub-marcas & Produtos</h2>
-        <p>
-          {unit.type === "house190"
-            ? "Informe os valores vendidos de X-Tudo no Delivery e no iFood para liberar as metas secundárias de bonificação."
-            : "Informe as vendas de Frango e Pizza para computar as metas de produtos do Food Park."}
-        </p>
+      <div className="subbrand-modal surface-card">
+        <div className="subbrand-modal-header">
+          <h2>
+            <Utensils size={18} color="var(--brand)" /> Separação de Sub-marcas
+          </h2>
+          <button className="icon-button" onClick={onClose} aria-label="Fechar" style={{ width: 32, height: 32 }}>
+            <X size={18} />
+          </button>
+        </div>
 
-        <form onSubmit={handleSave} style={{ display: "grid", gap: 16, marginTop: 16 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", background: "var(--surface-secondary)", padding: 12, borderRadius: 12 }}>
-            <label style={{ display: "grid", gap: 4, flex: 1 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>Data das Vendas</span>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => handleDateChange(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface)" }}
-                required
-              />
+        <div className="subbrand-modal-body">
+          <div className="subbrand-date-strip">
+            <label className="subbrand-date-input">
+              <span>Data:</span>
+              <input type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} required />
             </label>
-            <div style={{ flex: 1, fontSize: 11 }}>
-              <span style={{ color: "var(--text-secondary)", display: "block" }}>Total Takeat do Dia</span>
-              <strong>Delivery: {formatMoney(currentTotalDelivery)}</strong><br />
-              <strong>iFood: {formatMoney(currentTotalIfood)}</strong>
+            <div className="subbrand-takeat-pill">
+              <span>Takeat Delivery: <b>{formatMoney(currentTotalDelivery)}</b></span><br />
+              <span>Takeat iFood: <b>{formatMoney(currentTotalIfood)}</b></span>
             </div>
           </div>
 
           {unit.type === "house190" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-              <label className="money-field">
-                <span className="field-icon"><Truck size={20} /></span>
-                <span className="field-copy">
-                  <b>X-Tudo Delivery próprio</b>
-                  <small>House190 Delivery: {formatMoney(houseDeliveryRemaining)}</small>
-                </span>
-                <span className="money-control">
+            <div className="subbrand-compact-grid">
+              <div className="subbrand-compact-tile">
+                <span className="subbrand-compact-title"><Truck size={14} color="var(--brand)" /> X-Tudo Delivery</span>
+                <span className="subbrand-compact-sub">House Delivery: {formatMoney(houseDeliveryRemaining)}</span>
+                <div className="subbrand-compact-input-row">
                   <i>R$</i>
                   <input
                     inputMode="decimal"
@@ -562,16 +552,13 @@ function SubBrandModal({
                     placeholder="0,00"
                     onChange={(e) => setXtudoDelivery(parseMoney(e.target.value))}
                   />
-                </span>
-              </label>
+                </div>
+              </div>
 
-              <label className="money-field">
-                <span className="field-icon"><ShoppingBag size={20} /></span>
-                <span className="field-copy">
-                  <b>X-Tudo iFood</b>
-                  <small>House190 iFood: {formatMoney(houseIfoodRemaining)}</small>
-                </span>
-                <span className="money-control">
+              <div className="subbrand-compact-tile">
+                <span className="subbrand-compact-title"><ShoppingBag size={14} color="var(--brand)" /> X-Tudo iFood</span>
+                <span className="subbrand-compact-sub">House iFood: {formatMoney(houseIfoodRemaining)}</span>
+                <div className="subbrand-compact-input-row">
                   <i>R$</i>
                   <input
                     inputMode="decimal"
@@ -579,18 +566,15 @@ function SubBrandModal({
                     placeholder="0,00"
                     onChange={(e) => setXtudoIfood(parseMoney(e.target.value))}
                   />
-                </span>
-              </label>
+                </div>
+              </div>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
-              <label className="money-field">
-                <span className="field-icon"><Truck size={20} /></span>
-                <span className="field-copy">
-                  <b>Frango Delivery</b>
-                  <small>Vendas de Chicken</small>
-                </span>
-                <span className="money-control">
+            <div className="subbrand-compact-grid">
+              <div className="subbrand-compact-tile">
+                <span className="subbrand-compact-title"><Truck size={14} color="#f59e0b" /> Frango Delivery</span>
+                <span className="subbrand-compact-sub">Vendas Chicken</span>
+                <div className="subbrand-compact-input-row">
                   <i>R$</i>
                   <input
                     inputMode="decimal"
@@ -598,16 +582,13 @@ function SubBrandModal({
                     placeholder="0,00"
                     onChange={(e) => setFrangoDelivery(parseMoney(e.target.value))}
                   />
-                </span>
-              </label>
+                </div>
+              </div>
 
-              <label className="money-field">
-                <span className="field-icon"><ShoppingBag size={20} /></span>
-                <span className="field-copy">
-                  <b>Frango iFood</b>
-                  <small>Vendas de Chicken</small>
-                </span>
-                <span className="money-control">
+              <div className="subbrand-compact-tile">
+                <span className="subbrand-compact-title"><ShoppingBag size={14} color="#f59e0b" /> Frango iFood</span>
+                <span className="subbrand-compact-sub">Vendas Chicken</span>
+                <div className="subbrand-compact-input-row">
                   <i>R$</i>
                   <input
                     inputMode="decimal"
@@ -615,16 +596,13 @@ function SubBrandModal({
                     placeholder="0,00"
                     onChange={(e) => setFrangoIfood(parseMoney(e.target.value))}
                   />
-                </span>
-              </label>
+                </div>
+              </div>
 
-              <label className="money-field">
-                <span className="field-icon"><Truck size={20} /></span>
-                <span className="field-copy">
-                  <b>Pizza Delivery</b>
-                  <small>Vendas de Pizza</small>
-                </span>
-                <span className="money-control">
+              <div className="subbrand-compact-tile">
+                <span className="subbrand-compact-title"><Truck size={14} color="#ec4899" /> Pizza Delivery</span>
+                <span className="subbrand-compact-sub">Vendas Pizza</span>
+                <div className="subbrand-compact-input-row">
                   <i>R$</i>
                   <input
                     inputMode="decimal"
@@ -632,16 +610,13 @@ function SubBrandModal({
                     placeholder="0,00"
                     onChange={(e) => setPizzaDelivery(parseMoney(e.target.value))}
                   />
-                </span>
-              </label>
+                </div>
+              </div>
 
-              <label className="money-field">
-                <span className="field-icon"><ShoppingBag size={20} /></span>
-                <span className="field-copy">
-                  <b>Pizza iFood</b>
-                  <small>Vendas de Pizza</small>
-                </span>
-                <span className="money-control">
+              <div className="subbrand-compact-tile">
+                <span className="subbrand-compact-title"><ShoppingBag size={14} color="#ec4899" /> Pizza iFood</span>
+                <span className="subbrand-compact-sub">Vendas Pizza</span>
+                <div className="subbrand-compact-input-row">
                   <i>R$</i>
                   <input
                     inputMode="decimal"
@@ -649,15 +624,23 @@ function SubBrandModal({
                     placeholder="0,00"
                     onChange={(e) => setPizzaIfood(parseMoney(e.target.value))}
                   />
-                </span>
-              </label>
+                </div>
+              </div>
             </div>
           )}
 
-          <button className="primary-button" type="submit" disabled={saving} style={{ width: "100%", justifyContent: "center" }}>
-            <Save size={17} /> {saving ? "Salvando e recalculando..." : "Salvar e Atualizar Bonificação"}
+          {unit.type === "foodpark" && (
+            <small style={{ fontSize: 9.5, color: "var(--text-secondary)", textAlign: "center", display: "block" }}>
+              Burger / Lanches Delivery restante: <b>{formatMoney(burgerDeliveryRemaining)}</b>
+            </small>
+          )}
+        </div>
+
+        <div className="subbrand-modal-footer">
+          <button className="primary-button subbrand-save-btn" onClick={() => void handleSave()} disabled={saving}>
+            <Save size={16} /> {saving ? "Salvando..." : "Salvar e Atualizar Bonificação"}
           </button>
-        </form>
+        </div>
       </div>
     </div>
   );
@@ -753,7 +736,7 @@ function Dashboard({
         />
       )}
 
-      {/* BARRA MOBILE DE AÇÕES RÁPIDAS (MOBILE FIRST) */}
+      {/* BARRA SUPERIOR DE AÇÕES RÁPIDAS (MOBILE & DESKTOP) */}
       <div className="mobile-action-bar">
         <button className="mobile-action-btn action-subbrands" onClick={onOpenSubBrands}>
           <Utensils size={20} />
@@ -780,24 +763,6 @@ function Dashboard({
         </button>
         <button className="whatsapp-share-btn" onClick={shareWhatsApp}>
           <Share2 size={15} /> {copiedWhatsApp ? "Copiado!" : "Compartilhar Resumo WhatsApp"}
-        </button>
-      </div>
-
-      {/* Sub-brand Quick Launch Banner */}
-      <div className="sub-brand-banner-card">
-        <div className="sub-brand-banner-left">
-          <span className="sub-brand-banner-icon"><Utensils size={20} /></span>
-          <div>
-            <h3>{unit.type === "house190" ? "Divisão de Vendas X-Tudo" : "Divisão de Frango e Pizza"}</h3>
-            <p>
-              {unit.type === "house190"
-                ? "Lance a parcela de X-Tudo (Delivery/iFood) para liberar as metas de bonificação da equipe."
-                : "Lance as vendas de Frango e Pizza para apurar as categorias do Food Park."}
-            </p>
-          </div>
-        </div>
-        <button className="sub-brand-launch-btn" onClick={onOpenSubBrands}>
-          <PlusCircle size={16} /> Lançar Sub-marcas
         </button>
       </div>
 
