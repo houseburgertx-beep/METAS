@@ -30,9 +30,9 @@ const entryTotal = (entry: SalesEntry) => entry.salao + entry.delivery + entry.i
 const monthDatesUntil = (date: Date) => Array.from({ length: date.getDate() }, (_, index) => isoDate(new Date(date.getFullYear(), date.getMonth(), index + 1)));
 
 function IconForChannel({ channel }: { channel: string }) {
-  if (channel === "salao") return <UtensilsCrossed size={19} />;
-  if (channel === "delivery") return <Truck size={19} />;
-  return <ShoppingBag size={19} />;
+  if (channel === "salao") return <UtensilsCrossed size={17} />;
+  if (channel === "delivery") return <Truck size={17} />;
+  return <ShoppingBag size={17} />;
 }
 
 function ProgressBar({ value, expected, tone = "brand" }: { value: number; expected?: number; tone?: string }) {
@@ -189,7 +189,7 @@ function Donut({ channels }: { channels: { label: string; realized: number; key:
 }
 
 /* =========================================================================
-   MODO TV MULTI-LOJAS ULTRA PREMIUM COM MEDIDORES RADIAIS E ANIMAÇÃO
+   MODO TV MULTI-LOJAS ULTRA PREMIUM COM MEDIDORES RADIAIS E CANAIS DO MÊS
 ========================================================================= */
 function TvModeView({
   units,
@@ -222,11 +222,14 @@ function TvModeView({
     const metrics = calculatePerformance(u, entries, currentDate);
     const unitEntries = entries.filter((e) => e.unitId === u.id);
     const todayEntry = unitEntries.find((e) => e.date === todayStr);
-    const lastEntry = unitEntries[unitEntries.length - 1];
-    const displayDayEntry = todayEntry || lastEntry;
+    const activeEntries = unitEntries.filter((e) => entryTotal(e) > 0);
+    const lastActiveEntry = activeEntries[activeEntries.length - 1];
+
+    const isTodayActive = Boolean(todayEntry && entryTotal(todayEntry) > 0);
+    const displayDayEntry = isTodayActive ? todayEntry : lastActiveEntry;
+    const dayTotal = displayDayEntry ? entryTotal(displayDayEntry) : 0;
     const [y, m, d] = (displayDayEntry?.date || todayStr).split("-").map(Number);
     const dayTarget = u.dailyTargets[new Date(y, m - 1, d).getDay()].total;
-    const dayTotal = displayDayEntry ? entryTotal(displayDayEntry) : 0;
     const dayPct = dayTarget > 0 ? (dayTotal / dayTarget) * 100 : 0;
 
     const liveCmv = cmvRecords
@@ -245,6 +248,7 @@ function TvModeView({
     return {
       unit: u,
       metrics,
+      isTodayActive,
       displayDayEntry,
       dayTotal,
       dayTarget,
@@ -303,9 +307,9 @@ function TvModeView({
         </div>
       </header>
 
-      {/* Grid de Lojas com Animações e Medidores Radiais */}
+      {/* Grid de Lojas com Animações, Medidores Radiais e Canais do Mês */}
       <section className="tv-multi-grid">
-        {unitCards.map(({ unit: u, metrics, displayDayEntry, dayTotal, dayTarget, dayPct, monthCmv, bonus }) => {
+        {unitCards.map(({ unit: u, metrics, isTodayActive, displayDayEntry, dayTotal, dayTarget, dayPct, monthCmv, bonus }) => {
           const isHealthy = metrics.health === "green";
           const gaugeTone = metrics.percentage >= 95 ? "tone-green" : metrics.percentage >= 80 ? "tone-yellow" : "tone-red";
           const radius = 40;
@@ -356,18 +360,35 @@ function TvModeView({
                 </div>
               </div>
 
-              {/* Vendas do Dia / Hoje com Canais Separados */}
+              {/* CANAIS ACUMULADOS NO MÊS (MESA / SALÃO, DELIVERY PRÓPRIO, IFOOD) */}
+              <div className="tv-channels-month-grid">
+                {metrics.channels.map((chan) => (
+                  <div key={chan.key} className={`tv-month-chan-card chan-${chan.key}`}>
+                    <div className="tv-chan-card-top">
+                      <span><IconForChannel channel={chan.key} /> {chan.label}</span>
+                      <b>{Math.round(chan.percentage)}%</b>
+                    </div>
+                    <strong className="tv-chan-realized">{formatMoney(chan.realized)}</strong>
+                    <div className="tv-chan-bar-track">
+                      <div className="tv-chan-bar-fill" style={{ width: `${Math.min(chan.percentage, 100)}%` }} />
+                    </div>
+                    <small>Meta: {formatMoney(chan.goal)}</small>
+                  </div>
+                ))}
+              </div>
+
+              {/* Vendas Diárias (Hoje se aberto, ou Último Fechamento) */}
               <div className="tv-unit-today-box">
                 <div className="tv-unit-today-head">
                   <span>
-                    Vendas de <b>{displayDayEntry ? formatDateBR(displayDayEntry.date) : "Hoje"}</b>:
+                    {isTodayActive ? "Vendas de Hoje (em tempo real):" : `Último Fechamento (${displayDayEntry ? formatDateBR(displayDayEntry.date) : "Ontem"}):`}
                   </span>
                   <strong>{formatMoney(dayTotal)}</strong>
                 </div>
                 <div style={{ fontSize: 11, color: "#a8a29e", display: "flex", justifyContent: "space-between" }}>
                   <span>Meta diária: <b>{formatMoney(dayTarget)}</b></span>
                   <span style={{ color: dayPct >= 100 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>
-                    {formatPercent(dayPct)} do dia
+                    {isTodayActive ? `${formatPercent(dayPct)} do dia` : `${formatPercent(dayPct)} (Ontem)`}
                   </span>
                 </div>
                 <div className="tv-unit-channels">
@@ -526,7 +547,7 @@ function SubBrandModal({
           </div>
 
           {unit.type === "house190" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
               <label className="money-field">
                 <span className="field-icon"><Truck size={20} /></span>
                 <span className="field-copy">
@@ -562,7 +583,7 @@ function SubBrandModal({
               </label>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
               <label className="money-field">
                 <span className="field-icon"><Truck size={20} /></span>
                 <span className="field-copy">
@@ -731,6 +752,26 @@ function Dashboard({
           onSync={onSync}
         />
       )}
+
+      {/* BARRA MOBILE DE AÇÕES RÁPIDAS (MOBILE FIRST) */}
+      <div className="mobile-action-bar">
+        <button className="mobile-action-btn action-subbrands" onClick={onOpenSubBrands}>
+          <Utensils size={20} />
+          <div>
+            <strong>Lançar Sub-marcas</strong>
+            <small>{unit.type === "house190" ? "X-Tudo Delivery / iFood" : "Frango / Pizza / Burger"}</small>
+          </div>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mobile-action-btn action-freelancers" onClick={onOpenFreelancers}>
+          <UsersRound size={20} />
+          <div>
+            <strong>Lançar Diárias</strong>
+            <small>Teto máx R$ 1.500</small>
+          </div>
+          <ChevronRight size={16} />
+        </button>
+      </div>
 
       {/* Top Bar Actions: TV Mode and WhatsApp */}
       <div className="dashboard-top-actions">
@@ -1434,7 +1475,7 @@ function LaunchScreen({
 
         {unit.type === "house190" ? (
           <div style={{ display: "grid", gap: 14 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
               <label className="money-field">
                 <span className="field-icon"><Truck size={20} /></span>
                 <span className="field-copy">
@@ -1472,7 +1513,7 @@ function LaunchScreen({
           </div>
         ) : (
           <div style={{ display: "grid", gap: 14 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
               <label className="money-field">
                 <span className="field-icon"><Truck size={20} /></span>
                 <span className="field-copy">
@@ -1959,7 +2000,7 @@ function AdminScreen({
               <span className="unit-logo"><Building2 size={21} /></span>
               <div>
                 <strong>{unit.name}</strong>
-                <span className={`status-badge status-${metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger"}`}>
+                <span className={`status-badge status-${metrics.health === "green" ? "success" : "warning"}`}>
                   {metrics.healthLabel}
                 </span>
               </div>
@@ -2008,12 +2049,12 @@ function AppNavigation({
   onLogout: () => void;
 }) {
   const items: { key: View; label: string; icon: React.ReactNode }[] = [
-    { key: "dashboard", label: "Início", icon: <Home size={20} /> },
-    { key: "launch", label: "Lançar / Sub-marcas", icon: <Utensils size={20} /> },
-    { key: "history", label: "Histórico", icon: <History size={20} /> },
-    { key: "cmv", label: "CMV", icon: <CircleDollarSign size={20} /> },
-    { key: "ai", label: "House IA", icon: <Sparkles size={20} /> },
-    { key: "profile", label: "Perfil", icon: <UserRound size={20} /> },
+    { key: "dashboard", label: "Início", icon: <Home size={19} /> },
+    { key: "launch", label: "Sub-marcas", icon: <Utensils size={19} /> },
+    { key: "history", label: "Histórico", icon: <History size={19} /> },
+    { key: "cmv", label: "CMV", icon: <CircleDollarSign size={19} /> },
+    { key: "ai", label: "House IA", icon: <Sparkles size={19} /> },
+    { key: "profile", label: "Perfil", icon: <UserRound size={19} /> },
   ];
   return (
     <>

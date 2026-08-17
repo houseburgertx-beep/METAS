@@ -1,0 +1,13 @@
+{
+  "name": "HOUSE GESTÃO — Central de Metas e Performance",
+  "short_name": "HOUSE GESTÃO",
+  "description": "Gestão diária de metas e performance das unidades House.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f3f4",
+  "theme_color": "#a60b3b",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
