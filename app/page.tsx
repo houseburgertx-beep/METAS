@@ -4,10 +4,10 @@
 
 import {
   Activity, BarChart3, Bot, Building2, CalendarDays, ChevronDown, ChevronRight,
-  CircleDollarSign, DollarSign, History, Home, Lightbulb, LogOut, Moon, MoreHorizontal,
+  CircleDollarSign, Clock, DollarSign, History, Home, Lightbulb, LogOut, Moon, MoreHorizontal,
   PlusCircle, RefreshCw, Rocket, Save, Send, Settings, Share2, ShieldAlert, ShieldCheck,
   ShoppingBag, Sparkles, Store, Sun, Target, Trash2, TrendingDown, TrendingUp,
-  Truck, Tv, UserRound, UsersRound, UtensilsCrossed, X,
+  Truck, Tv, UserRound, UsersRound, Utensils, UtensilsCrossed, X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AdminGoalEditor } from "./admin-goals";
@@ -188,6 +188,9 @@ function Donut({ channels }: { channels: { label: string; realized: number; key:
   );
 }
 
+/* =========================================================================
+   MODO TV MULTI-LOJAS ULTRA PREMIUM COM MEDIDORES RADIAIS E ANIMAÇÃO
+========================================================================= */
 function TvModeView({
   units,
   entries,
@@ -201,8 +204,19 @@ function TvModeView({
   onClose: () => void;
   onSync: () => void;
 }) {
+  const [clockTime, setClockTime] = useState("");
   const todayStr = isoDate(currentDate);
   const currentMonthPrefix = todayStr.slice(0, 7);
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setClockTime(now.toLocaleTimeString("pt-BR", { hour12: false }));
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const unitCards = units.map((u) => {
     const metrics = calculatePerformance(u, entries, currentDate);
@@ -223,6 +237,11 @@ function TvModeView({
       }));
     const monthCmv = monthlyCmv(liveCmv, u, currentMonthPrefix);
 
+    const bonus = calculateBonus(u, unitEntries, {
+      cmvPercent: monthCmv.weeks > 0 ? monthCmv.percentage : 32.0,
+      freelancerSpend: 0,
+    });
+
     return {
       unit: u,
       metrics,
@@ -231,6 +250,7 @@ function TvModeView({
       dayTarget,
       dayPct,
       monthCmv,
+      bonus,
     };
   });
 
@@ -240,105 +260,384 @@ function TvModeView({
 
   return (
     <div className="tv-mode-overlay">
+      {/* Animated Floating Ambient Background Mesh Orbs */}
+      <div className="tv-ambient-orb tv-orb-1" />
+      <div className="tv-ambient-orb tv-orb-2" />
+      <div className="tv-ambient-orb tv-orb-3" />
+
+      {/* TV Cockpit Header */}
       <header className="tv-multi-top">
         <div className="tv-brand-block">
-          <span className="brand-mark"><BarChart3 size={28} /></span>
+          <span className="tv-brand-logo-glow"><BarChart3 size={26} /></span>
           <div>
-            <h1>Painel Multi-Lojas · House Gestão</h1>
-            <span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</span>
+            <h1>HOUSE GESTÃO · PAINEL OPERACIONAL</h1>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 2 }}>
+              <span className="tv-live-badge"><i className="tv-live-dot" /> AO VIVO</span>
+              <span style={{ fontSize: 12, color: "#a8a29e" }}>
+                {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
+              </span>
+            </div>
           </div>
         </div>
 
         <div className="tv-top-actions-cluster">
+          <div className="tv-clock-display">
+            <Clock size={16} style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+            {clockTime}
+          </div>
+
           <div className="tv-network-summary">
             <div className="tv-network-kpi">
-              <span>Rede Total no Mês</span>
+              <span>Faturamento Total da Rede</span>
               <strong>{formatMoney(totalNetworkMonth)}</strong>
-              <small>Meta: {formatMoney(totalNetworkGoal)} ({formatPercent(networkPct)})</small>
+              <small>Meta Global: {formatMoney(totalNetworkGoal)} ({formatPercent(networkPct)})</small>
             </div>
           </div>
+
           <button className="tv-exit-btn" onClick={onSync} title="Atualizar dados Takeat">
             <RefreshCw size={15} /> Sincronizar
           </button>
           <button className="tv-exit-btn" onClick={onClose}>
-            <X size={16} /> Sair do Modo TV
+            <X size={16} /> Sair da TV
           </button>
         </div>
       </header>
 
-      {/* Grid de Todas as Lojas Separadas */}
+      {/* Grid de Lojas com Animações e Medidores Radiais */}
       <section className="tv-multi-grid">
-        {unitCards.map(({ unit: u, metrics, displayDayEntry, dayTotal, dayTarget, dayPct, monthCmv }) => {
+        {unitCards.map(({ unit: u, metrics, displayDayEntry, dayTotal, dayTarget, dayPct, monthCmv, bonus }) => {
           const isHealthy = metrics.health === "green";
+          const gaugeTone = metrics.percentage >= 95 ? "tone-green" : metrics.percentage >= 80 ? "tone-yellow" : "tone-red";
+          const radius = 40;
+          const circumference = 2 * Math.PI * radius;
+          const progressOffset = circumference - (Math.min(metrics.percentage, 100) / 100) * circumference;
+
           return (
             <article key={u.id} className={`tv-unit-card ${u.type === "foodpark" ? "unit-foodpark" : ""}`}>
               <div className="tv-unit-head">
                 <div>
-                  <h2>{u.name}</h2>
-                  <span>Meta mensal: {formatMoney(u.monthlyGoal)}</span>
+                  <h2>
+                    <Store size={20} color="var(--brand)" /> {u.name}
+                  </h2>
+                  <span className="tv-submeta">Meta mensal: <b>{formatMoney(u.monthlyGoal)}</b></span>
                 </div>
                 <span className={`status-badge status-${isHealthy ? "success" : "warning"}`}>
                   {metrics.healthLabel}
                 </span>
               </div>
 
-              <div>
-                <span style={{ fontSize: 11, color: "#a8a29e", textTransform: "uppercase", fontWeight: 700 }}>
-                  Faturamento no Mês
-                </span>
-                <div className="tv-unit-main-val">{formatMoney(metrics.total)}</div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}>
-                  <span><b>{formatPercent(metrics.percentage)}</b> da meta</span>
-                  <span>Falta: <b>{formatMoney(metrics.missing)}</b></span>
+              {/* Centerpiece com Gráfico Radial / Anel SVG */}
+              <div className="tv-unit-centerpiece">
+                <div className="tv-gauge-container">
+                  <svg className="tv-gauge-svg" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r={radius} className="tv-gauge-track" />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={radius}
+                      className={`tv-gauge-fill ${gaugeTone}`}
+                      strokeDasharray={circumference}
+                      strokeDashoffset={progressOffset}
+                    />
+                  </svg>
+                  <div className="tv-gauge-label">
+                    <strong>{Math.round(metrics.percentage)}%</strong>
+                    <small>da meta</small>
+                  </div>
                 </div>
-                <div className="tv-progress-container" style={{ margin: "8px 0 0", height: 8 }}>
-                  <div className="tv-progress-fill" style={{ width: `${Math.min(metrics.percentage, 100)}%` }} />
+
+                <div className="tv-center-info">
+                  <span className="tv-eyebrow">Realizado no Mês</span>
+                  <div className="tv-unit-main-val">{formatMoney(metrics.total)}</div>
+                  <div className="tv-center-substats">
+                    <span>Falta: <b>{formatMoney(metrics.missing)}</b></span>
+                    <span>Projeção: <b>{formatMoney(metrics.projection)}</b></span>
+                  </div>
                 </div>
               </div>
 
-              {/* Vendas do Dia */}
+              {/* Vendas do Dia / Hoje com Canais Separados */}
               <div className="tv-unit-today-box">
                 <div className="tv-unit-today-head">
                   <span>
-                    Vendas de {displayDayEntry ? formatDateBR(displayDayEntry.date) : "Hoje"}:
+                    Vendas de <b>{displayDayEntry ? formatDateBR(displayDayEntry.date) : "Hoje"}</b>:
                   </span>
                   <strong>{formatMoney(dayTotal)}</strong>
                 </div>
-                <div style={{ fontSize: 10, color: "#a8a29e" }}>
-                  Meta do dia: {formatMoney(dayTarget)} ({formatPercent(dayPct)})
+                <div style={{ fontSize: 11, color: "#a8a29e", display: "flex", justifyContent: "space-between" }}>
+                  <span>Meta diária: <b>{formatMoney(dayTarget)}</b></span>
+                  <span style={{ color: dayPct >= 100 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>
+                    {formatPercent(dayPct)} do dia
+                  </span>
                 </div>
                 <div className="tv-unit-channels">
-                  <div className="tv-unit-chan-tile">
-                    <span>Salão</span>
+                  <div className="tv-unit-chan-tile chan-salao">
+                    <span><UtensilsCrossed size={12} /> Salão</span>
                     <strong>{formatMoney(displayDayEntry?.salao || 0)}</strong>
                   </div>
-                  <div className="tv-unit-chan-tile">
-                    <span>Delivery</span>
+                  <div className="tv-unit-chan-tile chan-delivery">
+                    <span><Truck size={12} /> Delivery</span>
                     <strong>{formatMoney(displayDayEntry?.delivery || 0)}</strong>
                   </div>
-                  <div className="tv-unit-chan-tile">
-                    <span>iFood</span>
+                  <div className="tv-unit-chan-tile chan-ifood">
+                    <span><ShoppingBag size={12} /> iFood</span>
                     <strong>{formatMoney(displayDayEntry?.ifood || 0)}</strong>
                   </div>
                 </div>
               </div>
 
-              <div className="tv-unit-footer">
-                <div>
-                  <span>CMV Acumulado:</span>{" "}
-                  <strong style={{ color: monthCmv.weeks && monthCmv.percentage <= u.cmvTargetPercent ? "var(--success)" : "#f87171" }}>
+              {/* Indicadores Operacionais de Rodapé */}
+              <div className="tv-unit-operational-row">
+                <div className="tv-op-cell">
+                  <span>CMV do Mês</span>
+                  <strong style={{ color: monthCmv.weeks && monthCmv.percentage <= u.cmvTargetPercent ? "#10b981" : "#f87171" }}>
                     {monthCmv.weeks ? formatPercent(monthCmv.percentage) : "—"}
                   </strong>
                 </div>
-                <div>
-                  <span>Projeção:</span>{" "}
-                  <strong>{formatMoney(metrics.projection)}</strong>
+                <div className="tv-op-cell">
+                  <span>Bônus Equipe</span>
+                  <strong style={{ color: "#f59e0b" }}>
+                    {formatMoney(bonus.conquered)}
+                  </strong>
+                </div>
+                <div className="tv-op-cell">
+                  <span>Supermeta</span>
+                  <strong>{formatMoney(u.superGoal)}</strong>
                 </div>
               </div>
             </article>
           );
         })}
       </section>
+    </div>
+  );
+}
+
+/* =========================================================================
+   MODAL RÁPIDO PARA LANÇAR SUB-MARCAS (X-TUDO / FRANGO / PIZZA)
+========================================================================= */
+function SubBrandModal({
+  unit,
+  entries,
+  onSave,
+  onClose,
+}: {
+  unit: UnitConfig;
+  entries: SalesEntry[];
+  onSave: (entry: SalesEntry) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [date, setDate] = useState(isoDate(currentDate));
+  const currentEntry = entries.find((e) => e.unitId === unit.id && e.date === date);
+
+  const [xtudoDelivery, setXtudoDelivery] = useState<number>(currentEntry?.deliveryDetails?.xtudo || 0);
+  const [xtudoIfood, setXtudoIfood] = useState<number>(currentEntry?.ifoodDetails?.xtudo || 0);
+
+  const [frangoDelivery, setFrangoDelivery] = useState<number>(currentEntry?.deliveryDetails?.frango || 0);
+  const [frangoIfood, setFrangoIfood] = useState<number>(currentEntry?.ifoodDetails?.frango || 0);
+  const [pizzaDelivery, setPizzaDelivery] = useState<number>(currentEntry?.deliveryDetails?.pizza || 0);
+  const [pizzaIfood, setPizzaIfood] = useState<number>(currentEntry?.ifoodDetails?.pizza || 0);
+
+  const [saving, setSaving] = useState(false);
+
+  const handleDateChange = (newDate: string) => {
+    setDate(newDate);
+    const entry = entries.find((e) => e.unitId === unit.id && e.date === newDate);
+    setXtudoDelivery(entry?.deliveryDetails?.xtudo || 0);
+    setXtudoIfood(entry?.ifoodDetails?.xtudo || 0);
+    setFrangoDelivery(entry?.deliveryDetails?.frango || 0);
+    setFrangoIfood(entry?.ifoodDetails?.frango || 0);
+    setPizzaDelivery(entry?.deliveryDetails?.pizza || 0);
+    setPizzaIfood(entry?.ifoodDetails?.pizza || 0);
+  };
+
+  const currentTotalDelivery = currentEntry?.delivery || 0;
+  const currentTotalIfood = currentEntry?.ifood || 0;
+
+  const houseDeliveryRemaining = Math.max(currentTotalDelivery - xtudoDelivery, 0);
+  const houseIfoodRemaining = Math.max(currentTotalIfood - xtudoIfood, 0);
+
+  const burgerDeliveryRemaining = Math.max(currentTotalDelivery - frangoDelivery - pizzaDelivery, 0);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const baseEntry: SalesEntry = currentEntry || {
+        id: `${unit.id}_${date}`,
+        unitId: unit.id,
+        date,
+        salao: 0,
+        delivery: 0,
+        ifood: 0,
+        createdBy: "gerente@house190.com.br",
+        updatedAt: new Date().toISOString(),
+      };
+
+      const updatedEntry: SalesEntry = {
+        ...baseEntry,
+        deliveryDetails:
+          unit.type === "house190"
+            ? { ...(baseEntry.deliveryDetails || {}), xtudo: xtudoDelivery }
+            : { ...(baseEntry.deliveryDetails || {}), frango: frangoDelivery, pizza: pizzaDelivery },
+        ifoodDetails:
+          unit.type === "house190"
+            ? { ...(baseEntry.ifoodDetails || {}), xtudo: xtudoIfood }
+            : { ...(baseEntry.ifoodDetails || {}), frango: frangoIfood, pizza: pizzaIfood },
+        updatedAt: new Date().toISOString(),
+      };
+
+      await onSave(updatedEntry);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="confirm-modal surface-card" style={{ maxWidth: 640 }}>
+        <button className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
+        <span className="modal-icon" style={{ background: "var(--brand)", color: "#fff" }}><Utensils size={24} /></span>
+        <h2>Lançar Separação de Sub-marcas & Produtos</h2>
+        <p>
+          {unit.type === "house190"
+            ? "Informe os valores vendidos de X-Tudo no Delivery e no iFood para liberar as metas secundárias de bonificação."
+            : "Informe as vendas de Frango e Pizza para computar as metas de produtos do Food Park."}
+        </p>
+
+        <form onSubmit={handleSave} style={{ display: "grid", gap: 16, marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", background: "var(--surface-secondary)", padding: 12, borderRadius: 12 }}>
+            <label style={{ display: "grid", gap: 4, flex: 1 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>Data das Vendas</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => handleDateChange(e.target.value)}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface)" }}
+                required
+              />
+            </label>
+            <div style={{ flex: 1, fontSize: 11 }}>
+              <span style={{ color: "var(--text-secondary)", display: "block" }}>Total Takeat do Dia</span>
+              <strong>Delivery: {formatMoney(currentTotalDelivery)}</strong><br />
+              <strong>iFood: {formatMoney(currentTotalIfood)}</strong>
+            </div>
+          </div>
+
+          {unit.type === "house190" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <label className="money-field">
+                <span className="field-icon"><Truck size={20} /></span>
+                <span className="field-copy">
+                  <b>X-Tudo Delivery próprio</b>
+                  <small>House190 Delivery: {formatMoney(houseDeliveryRemaining)}</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={xtudoDelivery ? formatMoneyInput(xtudoDelivery) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setXtudoDelivery(parseMoney(e.target.value))}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><ShoppingBag size={20} /></span>
+                <span className="field-copy">
+                  <b>X-Tudo iFood</b>
+                  <small>House190 iFood: {formatMoney(houseIfoodRemaining)}</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={xtudoIfood ? formatMoneyInput(xtudoIfood) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setXtudoIfood(parseMoney(e.target.value))}
+                  />
+                </span>
+              </label>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <label className="money-field">
+                <span className="field-icon"><Truck size={20} /></span>
+                <span className="field-copy">
+                  <b>Frango Delivery</b>
+                  <small>Vendas de Chicken</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={frangoDelivery ? formatMoneyInput(frangoDelivery) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setFrangoDelivery(parseMoney(e.target.value))}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><ShoppingBag size={20} /></span>
+                <span className="field-copy">
+                  <b>Frango iFood</b>
+                  <small>Vendas de Chicken</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={frangoIfood ? formatMoneyInput(frangoIfood) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setFrangoIfood(parseMoney(e.target.value))}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><Truck size={20} /></span>
+                <span className="field-copy">
+                  <b>Pizza Delivery</b>
+                  <small>Vendas de Pizza</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={pizzaDelivery ? formatMoneyInput(pizzaDelivery) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setPizzaDelivery(parseMoney(e.target.value))}
+                  />
+                </span>
+              </label>
+
+              <label className="money-field">
+                <span className="field-icon"><ShoppingBag size={20} /></span>
+                <span className="field-copy">
+                  <b>Pizza iFood</b>
+                  <small>Vendas de Pizza</small>
+                </span>
+                <span className="money-control">
+                  <i>R$</i>
+                  <input
+                    inputMode="decimal"
+                    value={pizzaIfood ? formatMoneyInput(pizzaIfood) : ""}
+                    placeholder="0,00"
+                    onChange={(e) => setPizzaIfood(parseMoney(e.target.value))}
+                  />
+                </span>
+              </label>
+            </div>
+          )}
+
+          <button className="primary-button" type="submit" disabled={saving} style={{ width: "100%", justifyContent: "center" }}>
+            <Save size={17} /> {saving ? "Salvando e recalculando..." : "Salvar e Atualizar Bonificação"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -353,6 +652,7 @@ function Dashboard({
   syncStatus,
   onSync,
   onOpenFreelancers,
+  onOpenSubBrands,
 }: {
   unit: UnitConfig;
   units: UnitConfig[];
@@ -363,6 +663,7 @@ function Dashboard({
   syncStatus: SyncStatus;
   onSync: () => void;
   onOpenFreelancers: () => void;
+  onOpenSubBrands: () => void;
 }) {
   const [tvMode, setTvMode] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
@@ -438,6 +739,24 @@ function Dashboard({
         </button>
         <button className="whatsapp-share-btn" onClick={shareWhatsApp}>
           <Share2 size={15} /> {copiedWhatsApp ? "Copiado!" : "Compartilhar Resumo WhatsApp"}
+        </button>
+      </div>
+
+      {/* Sub-brand Quick Launch Banner */}
+      <div className="sub-brand-banner-card">
+        <div className="sub-brand-banner-left">
+          <span className="sub-brand-banner-icon"><Utensils size={20} /></span>
+          <div>
+            <h3>{unit.type === "house190" ? "Divisão de Vendas X-Tudo" : "Divisão de Frango e Pizza"}</h3>
+            <p>
+              {unit.type === "house190"
+                ? "Lance a parcela de X-Tudo (Delivery/iFood) para liberar as metas de bonificação da equipe."
+                : "Lance as vendas de Frango e Pizza para apurar as categorias do Food Park."}
+            </p>
+          </div>
+        </div>
+        <button className="sub-brand-launch-btn" onClick={onOpenSubBrands}>
+          <PlusCircle size={16} /> Lançar Sub-marcas
         </button>
       </div>
 
@@ -1050,8 +1369,8 @@ function LaunchScreen({
       <div className="page-title">
         <div>
           <span className="eyebrow">Lançamento diário</span>
-          <h1>Vendas do dia</h1>
-          <p>Os valores vêm automaticamente da Takeat e podem ser conferidos antes de salvar.</p>
+          <h1>Vendas & Separação de Produtos</h1>
+          <p>Os totais vêm da Takeat e você pode informar os valores do cardápio X-Tudo ou Frango/Pizza.</p>
         </div>
         <div className="date-picker">
           <CalendarDays size={17} />
@@ -1120,7 +1439,7 @@ function LaunchScreen({
                 <span className="field-icon"><Truck size={20} /></span>
                 <span className="field-copy">
                   <b>X-Tudo no Delivery Próprio</b>
-                  <small>House190 Delivery fica: {formatMoney(house190DeliveryRemaining)}</small>
+                  <small>House190 Delivery fica: {formatMoney(houseDeliveryRemaining)}</small>
                 </span>
                 <span className="money-control">
                   <i>R$</i>
@@ -1137,7 +1456,7 @@ function LaunchScreen({
                 <span className="field-icon"><ShoppingBag size={20} /></span>
                 <span className="field-copy">
                   <b>X-Tudo no iFood</b>
-                  <small>House190 iFood fica: {formatMoney(house190IfoodRemaining)}</small>
+                  <small>House190 iFood fica: {formatMoney(houseIfoodRemaining)}</small>
                 </span>
                 <span className="money-control">
                   <i>R$</i>
@@ -1449,6 +1768,7 @@ function ProfileScreen({
   profile,
   onLogout,
   onOpenFreelancers,
+  onOpenSubBrands,
 }: {
   unit: UnitConfig;
   entries: SalesEntry[];
@@ -1458,6 +1778,7 @@ function ProfileScreen({
   profile: { name: string; email: string };
   onLogout: () => void;
   onOpenFreelancers: () => void;
+  onOpenSubBrands: () => void;
 }) {
   const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
   const liveRevenue = (record: CmvEntry) => {
@@ -1490,7 +1811,11 @@ function ProfileScreen({
           <h1>Minha bonificação</h1>
           <p>Regras aplicadas automaticamente à apuração.</p>
         </div>
+        <button className="primary-button" onClick={onOpenSubBrands}>
+          <Utensils size={16} /> Lançar X-Tudo / Frango
+        </button>
       </div>
+
       <section className="bonus-hero surface-card">
         <div>
           <span className="eyebrow">Bônus conquistado</span>
@@ -1499,6 +1824,7 @@ function ProfileScreen({
         </div>
         <ProgressRing value={(bonus.conquered / bonus.potential) * 100} size={104} tone="warning" />
       </section>
+
       {(bonus.cmvBlocked || bonus.minimumBlocked) && (
         <div className="blocking-alert">
           <ShieldCheck size={20} />
@@ -1508,12 +1834,16 @@ function ProfileScreen({
           </div>
         </div>
       )}
+
       <section className="bonus-list surface-card">
         <div className="section-heading">
           <div>
             <span className="eyebrow">Categorias</span>
             <h2>Progresso da apuração</h2>
           </div>
+          <button className="secondary-button" onClick={onOpenSubBrands}>
+            <PlusCircle size={15} /> Ajustar X-Tudo / Frango
+          </button>
         </div>
         {bonus.categories.map((category) => (
           <article key={category.label}>
@@ -1533,6 +1863,7 @@ function ProfileScreen({
           </article>
         ))}
       </section>
+
       <section className="surface-card operating-card">
         <div className="section-heading">
           <div>
@@ -1562,6 +1893,7 @@ function ProfileScreen({
           </label>
         </div>
       </section>
+
       <section className="surface-card profile-card">
         <div className="avatar-large">
           {profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
@@ -1677,6 +2009,7 @@ function AppNavigation({
 }) {
   const items: { key: View; label: string; icon: React.ReactNode }[] = [
     { key: "dashboard", label: "Início", icon: <Home size={20} /> },
+    { key: "launch", label: "Lançar / Sub-marcas", icon: <Utensils size={20} /> },
     { key: "history", label: "Histórico", icon: <History size={20} /> },
     { key: "cmv", label: "CMV", icon: <CircleDollarSign size={20} /> },
     { key: "ai", label: "House IA", icon: <Sparkles size={20} /> },
@@ -1790,6 +2123,7 @@ export default function HomePage() {
   const [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]);
   const [freelancers, setFreelancers] = useState<FreelancerEntry[]>([]);
   const [freelancersModalOpen, setFreelancersModalOpen] = useState(false);
+  const [subBrandModalOpen, setSubBrandModalOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
   const [toast, setToast] = useState<string | null>(null);
   const [unitMenu, setUnitMenu] = useState(false);
@@ -1956,7 +2290,6 @@ export default function HomePage() {
     }
     setEntries((current) => [...current.filter((item) => !(item.unitId === normalized.unitId && item.date === normalized.date)), normalized].sort((a, b) => a.date.localeCompare(b.date)));
     setToast(`Vendas de ${formatDateBR(normalized.date)} registradas.`);
-    setView("dashboard");
   };
 
   const syncTakeat = async (unitId: string, date: string) => {
@@ -2073,6 +2406,7 @@ export default function HomePage() {
               syncStatus={syncStatus}
               onSync={() => void synchronizeMonth(role === "admin" ? units.map((u) => u.id) : permittedUnits)}
               onOpenFreelancers={() => setFreelancersModalOpen(true)}
+              onOpenSubBrands={() => setSubBrandModalOpen(true)}
             />
           )}
           {view === "launch" && (
@@ -2105,6 +2439,7 @@ export default function HomePage() {
               profile={profile}
               onLogout={() => void logout()}
               onOpenFreelancers={() => setFreelancersModalOpen(true)}
+              onOpenSubBrands={() => setSubBrandModalOpen(true)}
             />
           )}
           {view === "admin" && (
@@ -2113,6 +2448,17 @@ export default function HomePage() {
         </div>
       </main>
 
+      {/* MODAL DE SUB-MARCAS (X-TUDO / FRANGO / PIZZA) */}
+      {subBrandModalOpen && (
+        <SubBrandModal
+          unit={unit}
+          entries={entries}
+          onSave={save}
+          onClose={() => setSubBrandModalOpen(false)}
+        />
+      )}
+
+      {/* MODAL DE FREELANCERS */}
       {freelancersModalOpen && (
         <FreelancersModal
           unit={unit}
