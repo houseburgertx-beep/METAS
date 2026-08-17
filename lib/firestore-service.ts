@@ -16,10 +16,24 @@ export async function loadUserProfile(uid: string) {
   return snapshot.exists() ? snapshot.data() as { role: "admin" | "manager"; unitId?: string; name?: string; email?: string; active?: boolean } : null;
 }
 
+function cleanData<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date)) {
+        clean[key] = cleanData(value);
+      } else {
+        clean[key] = value;
+      }
+    }
+  }
+  return clean;
+}
+
 export async function saveDailySale(entry: SalesEntry) {
   if (!db) throw new Error("Firebase não configurado");
   const id = `${entry.unitId}_${entry.date}`;
-  await setDoc(doc(db, "dailySales", id), { ...entry, id }, { merge: true });
+  await setDoc(doc(db, "dailySales", id), cleanData({ ...entry, id }), { merge: true });
 }
 
 export async function loadUnitSales(unitId: string, monthPrefix: string) {
@@ -38,19 +52,24 @@ export async function loadUnitSales(unitId: string, monthPrefix: string) {
 
 export async function saveCmvEntry(entry: CmvEntry) {
   if (!db) throw new Error("Firebase não configurado");
+  const cleaned = cleanData(entry);
   try {
-    await setDoc(doc(db, "cmvEntries", entry.id), entry, { merge: true });
+    await setDoc(doc(db, "cmvEntries", entry.id), cleaned, { merge: true });
   } catch (error) {
+    console.warn("Falha ao salvar em cmvEntries, tentando fallback em dailySales:", error);
     const code = (error as { code?: string }).code || "";
-    if (!code.includes("permission-denied")) throw error;
-    await setDoc(doc(db, "dailySales", `cmv_${entry.id}`), {
-      id: `cmv_${entry.id}`,
-      unitId: entry.unitId,
-      date: entry.weekStart,
-      recordType: "cmv",
-      cmv: entry,
-      updatedAt: entry.updatedAt,
-    }, { merge: true });
+    if (code.includes("permission-denied")) {
+      await setDoc(doc(db, "dailySales", `cmv_${entry.id}`), cleanData({
+        id: `cmv_${entry.id}`,
+        unitId: entry.unitId,
+        date: entry.weekStart,
+        recordType: "cmv",
+        cmv: cleaned,
+        updatedAt: entry.updatedAt,
+      }), { merge: true });
+    } else {
+      throw error;
+    }
   }
 }
 
@@ -77,7 +96,7 @@ export async function loadCmvEntries(unitIds: string[]) {
 
 export async function saveUnitGoals(unit: UnitConfig) {
   if (!db) throw new Error("Firebase não configurado");
-  await setDoc(doc(db, "goals", unit.id), { ...unit, unitId: unit.id, updatedAt: new Date().toISOString() }, { merge: true });
+  await setDoc(doc(db, "goals", unit.id), cleanData({ ...unit, unitId: unit.id, updatedAt: new Date().toISOString() }), { merge: true });
 }
 
 export async function loadUnitGoals(unitIds: string[]) {

@@ -99,7 +99,7 @@ export function CmvScreen({ unit, units, sales, records, role, onSave }: {
     setSaveError("");
     try {
       const existing = records.find((record) => record.id === editingId);
-      await onSave({
+      const entryToSave: CmvEntry = {
         id: `${unit.id}_${period.weekStart}`,
         unitId: unit.id,
         weekStart: period.weekStart,
@@ -109,13 +109,22 @@ export function CmvScreen({ unit, units, sales, records, role, onSave }: {
         targetPercent: unit.cmvTargetPercent,
         ...costs,
         createdAt: existing?.createdAt || new Date().toISOString(),
-        createdBy: existing?.createdBy,
+        ...(existing?.createdBy ? { createdBy: existing.createdBy } : {}),
         updatedAt: new Date().toISOString(),
-      });
+      };
+      await onSave(entryToSave);
       setEditingId(`${unit.id}_${period.weekStart}`);
       setSaved(true);
-    } catch {
-      setSaveError("Não foi possível salvar o CMV. Atualize a página e tente novamente; se persistir, as permissões do banco precisam ser publicadas.");
+    } catch (err) {
+      console.error("Erro ao salvar conferência de CMV:", err);
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("permission-denied") || msg.includes("permissões")) {
+        setSaveError("Não foi possível salvar o CMV por falta de permissão no banco de dados. Verifique as regras do Firestore.");
+      } else if (msg) {
+        setSaveError(`Não foi possível salvar o CMV: ${msg}`);
+      } else {
+        setSaveError("Não foi possível salvar o CMV. Atualize a página e tente novamente; se persistir, as permissões do banco precisam ser publicadas.");
+      }
     } finally {
       setSaving(false);
     }
