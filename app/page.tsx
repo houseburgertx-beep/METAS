@@ -441,19 +441,43 @@ function SubBrandModal({
   unit,
   entries,
   onSave,
+  onSaveBatch,
   onClose,
 }: {
   unit: UnitConfig;
   entries: SalesEntry[];
   onSave: (entry: SalesEntry) => Promise<void>;
+  onSaveBatch?: (entries: SalesEntry[]) => Promise<void>;
   onClose: () => void;
 }) {
+  const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
+  const unitMonthEntries = entries.filter((e) => e.unitId === unit.id && e.date.startsWith(currentMonthPrefix));
+
+  const totalMonthDelivery = unitMonthEntries.reduce((sum, e) => sum + e.delivery, 0);
+  const totalMonthIfood = unitMonthEntries.reduce((sum, e) => sum + e.ifood, 0);
+
+  const initialMonthXtudoDelivery = unitMonthEntries.reduce((sum, e) => sum + (e.deliveryDetails?.xtudo || 0), 0);
+  const initialMonthXtudoIfood = unitMonthEntries.reduce((sum, e) => sum + (e.ifoodDetails?.xtudo || 0), 0);
+  const initialMonthFrangoDelivery = unitMonthEntries.reduce((sum, e) => sum + (e.deliveryDetails?.frango || 0), 0);
+  const initialMonthFrangoIfood = unitMonthEntries.reduce((sum, e) => sum + (e.ifoodDetails?.frango || 0), 0);
+  const initialMonthPizzaDelivery = unitMonthEntries.reduce((sum, e) => sum + (e.deliveryDetails?.pizza || 0), 0);
+  const initialMonthPizzaIfood = unitMonthEntries.reduce((sum, e) => sum + (e.ifoodDetails?.pizza || 0), 0);
+
+  const [tab, setTab] = useState<"month" | "day">("month");
   const [date, setDate] = useState(isoDate(currentDate));
   const currentEntry = entries.find((e) => e.unitId === unit.id && e.date === date);
 
+  // Month-mode states
+  const [monthXtudoDelivery, setMonthXtudoDelivery] = useState<number>(initialMonthXtudoDelivery);
+  const [monthXtudoIfood, setMonthXtudoIfood] = useState<number>(initialMonthXtudoIfood);
+  const [monthFrangoDelivery, setMonthFrangoDelivery] = useState<number>(initialMonthFrangoDelivery);
+  const [monthFrangoIfood, setMonthFrangoIfood] = useState<number>(initialMonthFrangoIfood);
+  const [monthPizzaDelivery, setMonthPizzaDelivery] = useState<number>(initialMonthPizzaDelivery);
+  const [monthPizzaIfood, setMonthPizzaIfood] = useState<number>(initialMonthPizzaIfood);
+
+  // Day-mode states
   const [xtudoDelivery, setXtudoDelivery] = useState<number>(currentEntry?.deliveryDetails?.xtudo || 0);
   const [xtudoIfood, setXtudoIfood] = useState<number>(currentEntry?.ifoodDetails?.xtudo || 0);
-
   const [frangoDelivery, setFrangoDelivery] = useState<number>(currentEntry?.deliveryDetails?.frango || 0);
   const [frangoIfood, setFrangoIfood] = useState<number>(currentEntry?.ifoodDetails?.frango || 0);
   const [pizzaDelivery, setPizzaDelivery] = useState<number>(currentEntry?.deliveryDetails?.pizza || 0);
@@ -475,40 +499,95 @@ function SubBrandModal({
   const currentTotalDelivery = currentEntry?.delivery || 0;
   const currentTotalIfood = currentEntry?.ifood || 0;
 
+  // Month remaining
+  const monthHouseDeliveryRemaining = Math.max(totalMonthDelivery - monthXtudoDelivery, 0);
+  const monthHouseIfoodRemaining = Math.max(totalMonthIfood - monthXtudoIfood, 0);
+  const monthBurgerRemaining = Math.max(totalMonthDelivery - monthFrangoDelivery - monthPizzaDelivery, 0);
+
+  // Day remaining
   const houseDeliveryRemaining = Math.max(currentTotalDelivery - xtudoDelivery, 0);
   const houseIfoodRemaining = Math.max(currentTotalIfood - xtudoIfood, 0);
-
   const burgerDeliveryRemaining = Math.max(currentTotalDelivery - frangoDelivery - pizzaDelivery, 0);
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSaving(true);
     try {
-      const baseEntry: SalesEntry = currentEntry || {
-        id: `${unit.id}_${date}`,
-        unitId: unit.id,
-        date,
-        salao: 0,
-        delivery: 0,
-        ifood: 0,
-        createdBy: "gerente@house190.com.br",
-        updatedAt: new Date().toISOString(),
-      };
+      if (tab === "month") {
+        if (unitMonthEntries.length === 0) {
+          onClose();
+          return;
+        }
 
-      const updatedEntry: SalesEntry = {
-        ...baseEntry,
-        deliveryDetails:
-          unit.type === "house190"
-            ? { ...(baseEntry.deliveryDetails || {}), xtudo: xtudoDelivery }
-            : { ...(baseEntry.deliveryDetails || {}), frango: frangoDelivery, pizza: pizzaDelivery },
-        ifoodDetails:
-          unit.type === "house190"
-            ? { ...(baseEntry.ifoodDetails || {}), xtudo: xtudoIfood }
-            : { ...(baseEntry.ifoodDetails || {}), frango: frangoIfood, pizza: pizzaIfood },
-        updatedAt: new Date().toISOString(),
-      };
+        const updatedEntries: SalesEntry[] = unitMonthEntries.map((entry) => {
+          const dWeight = totalMonthDelivery > 0 ? entry.delivery / totalMonthDelivery : 1 / unitMonthEntries.length;
+          const iWeight = totalMonthIfood > 0 ? entry.ifood / totalMonthIfood : 1 / unitMonthEntries.length;
 
-      await onSave(updatedEntry);
+          if (unit.type === "house190") {
+            return {
+              ...entry,
+              deliveryDetails: {
+                ...(entry.deliveryDetails || {}),
+                xtudo: Math.round(monthXtudoDelivery * dWeight * 100) / 100,
+              },
+              ifoodDetails: {
+                ...(entry.ifoodDetails || {}),
+                xtudo: Math.round(monthXtudoIfood * iWeight * 100) / 100,
+              },
+              updatedAt: new Date().toISOString(),
+            };
+          } else {
+            return {
+              ...entry,
+              deliveryDetails: {
+                ...(entry.deliveryDetails || {}),
+                frango: Math.round(monthFrangoDelivery * dWeight * 100) / 100,
+                pizza: Math.round(monthPizzaDelivery * dWeight * 100) / 100,
+              },
+              ifoodDetails: {
+                ...(entry.ifoodDetails || {}),
+                frango: Math.round(monthFrangoIfood * iWeight * 100) / 100,
+                pizza: Math.round(monthPizzaIfood * iWeight * 100) / 100,
+              },
+              updatedAt: new Date().toISOString(),
+            };
+          }
+        });
+
+        if (onSaveBatch) {
+          await onSaveBatch(updatedEntries);
+        } else {
+          for (const entry of updatedEntries) {
+            await onSave(entry);
+          }
+        }
+      } else {
+        const baseEntry: SalesEntry = currentEntry || {
+          id: `${unit.id}_${date}`,
+          unitId: unit.id,
+          date,
+          salao: 0,
+          delivery: 0,
+          ifood: 0,
+          createdBy: "gerente@house190.com.br",
+          updatedAt: new Date().toISOString(),
+        };
+
+        const updatedEntry: SalesEntry = {
+          ...baseEntry,
+          deliveryDetails:
+            unit.type === "house190"
+              ? { ...(baseEntry.deliveryDetails || {}), xtudo: xtudoDelivery }
+              : { ...(baseEntry.deliveryDetails || {}), frango: frangoDelivery, pizza: pizzaDelivery },
+          ifoodDetails:
+            unit.type === "house190"
+              ? { ...(baseEntry.ifoodDetails || {}), xtudo: xtudoIfood }
+              : { ...(baseEntry.ifoodDetails || {}), frango: frangoIfood, pizza: pizzaIfood },
+          updatedAt: new Date().toISOString(),
+        };
+
+        await onSave(updatedEntry);
+      }
       onClose();
     } finally {
       setSaving(false);
@@ -528,117 +607,238 @@ function SubBrandModal({
         </div>
 
         <div className="subbrand-modal-body">
-          <div className="subbrand-date-strip">
-            <label className="subbrand-date-input">
-              <span>Data:</span>
-              <input type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} required />
-            </label>
-            <div className="subbrand-takeat-pill">
-              <span>Takeat Delivery: <b>{formatMoney(currentTotalDelivery)}</b></span><br />
-              <span>Takeat iFood: <b>{formatMoney(currentTotalIfood)}</b></span>
-            </div>
+          {/* Alternador de Modo: Acumulado do Mês vs Por Dia */}
+          <div className="subbrand-mode-toggle">
+            <button className={tab === "month" ? "active" : ""} onClick={() => setTab("month")}>
+              <BarChart3 size={14} /> Total Acumulado do Mês
+            </button>
+            <button className={tab === "day" ? "active" : ""} onClick={() => setTab("day")}>
+              <CalendarDays size={14} /> Por Dia Específico
+            </button>
           </div>
 
-          {unit.type === "house190" ? (
-            <div className="subbrand-compact-grid">
-              <div className="subbrand-compact-tile">
-                <span className="subbrand-compact-title"><Truck size={14} color="var(--brand)" /> X-Tudo Delivery</span>
-                <span className="subbrand-compact-sub">House Delivery: {formatMoney(houseDeliveryRemaining)}</span>
-                <div className="subbrand-compact-input-row">
-                  <i>R$</i>
-                  <input
-                    inputMode="decimal"
-                    value={xtudoDelivery ? formatMoneyInput(xtudoDelivery) : ""}
-                    placeholder="0,00"
-                    onChange={(e) => setXtudoDelivery(parseMoney(e.target.value))}
-                  />
+          {tab === "month" ? (
+            <>
+              <div className="subbrand-date-strip">
+                <div style={{ fontSize: 11, fontWeight: 700 }}>
+                  <span>Período: </span>
+                  <b style={{ color: "var(--brand)" }}>01 a {currentDate.getDate()} de {currentDate.toLocaleDateString("pt-BR", { month: "long" })}</b>
+                </div>
+                <div className="subbrand-takeat-pill">
+                  <span>Takeat Delivery: <b>{formatMoney(totalMonthDelivery)}</b></span><br />
+                  <span>Takeat iFood: <b>{formatMoney(totalMonthIfood)}</b></span>
                 </div>
               </div>
 
-              <div className="subbrand-compact-tile">
-                <span className="subbrand-compact-title"><ShoppingBag size={14} color="var(--brand)" /> X-Tudo iFood</span>
-                <span className="subbrand-compact-sub">House iFood: {formatMoney(houseIfoodRemaining)}</span>
-                <div className="subbrand-compact-input-row">
-                  <i>R$</i>
-                  <input
-                    inputMode="decimal"
-                    value={xtudoIfood ? formatMoneyInput(xtudoIfood) : ""}
-                    placeholder="0,00"
-                    onChange={(e) => setXtudoIfood(parseMoney(e.target.value))}
-                  />
+              {unit.type === "house190" ? (
+                <div className="subbrand-compact-grid">
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><Truck size={14} color="var(--brand)" /> X-Tudo Delivery (Mês)</span>
+                    <span className="subbrand-compact-sub">House Delivery: {formatMoney(monthHouseDeliveryRemaining)}</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={monthXtudoDelivery ? formatMoneyInput(monthXtudoDelivery) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setMonthXtudoDelivery(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><ShoppingBag size={14} color="var(--brand)" /> X-Tudo iFood (Mês)</span>
+                    <span className="subbrand-compact-sub">House iFood: {formatMoney(monthHouseIfoodRemaining)}</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={monthXtudoIfood ? formatMoneyInput(monthXtudoIfood) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setMonthXtudoIfood(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              ) : (
+                <div className="subbrand-compact-grid">
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><Truck size={14} color="#f59e0b" /> Frango Delivery (Mês)</span>
+                    <span className="subbrand-compact-sub">Vendas Chicken Mês</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={monthFrangoDelivery ? formatMoneyInput(monthFrangoDelivery) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setMonthFrangoDelivery(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><ShoppingBag size={14} color="#f59e0b" /> Frango iFood (Mês)</span>
+                    <span className="subbrand-compact-sub">Vendas Chicken Mês</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={monthFrangoIfood ? formatMoneyInput(monthFrangoIfood) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setMonthFrangoIfood(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><Truck size={14} color="#ec4899" /> Pizza Delivery (Mês)</span>
+                    <span className="subbrand-compact-sub">Vendas Pizza Mês</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={monthPizzaDelivery ? formatMoneyInput(monthPizzaDelivery) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setMonthPizzaDelivery(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><ShoppingBag size={14} color="#ec4899" /> Pizza iFood (Mês)</span>
+                    <span className="subbrand-compact-sub">Vendas Pizza Mês</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={monthPizzaIfood ? formatMoneyInput(monthPizzaIfood) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setMonthPizzaIfood(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {unit.type === "foodpark" && (
+                <small style={{ fontSize: 9.5, color: "var(--text-secondary)", textAlign: "center", display: "block" }}>
+                  Burger / Lanches Delivery no Mês: <b>{formatMoney(monthBurgerRemaining)}</b>
+                </small>
+              )}
+            </>
           ) : (
-            <div className="subbrand-compact-grid">
-              <div className="subbrand-compact-tile">
-                <span className="subbrand-compact-title"><Truck size={14} color="#f59e0b" /> Frango Delivery</span>
-                <span className="subbrand-compact-sub">Vendas Chicken</span>
-                <div className="subbrand-compact-input-row">
-                  <i>R$</i>
-                  <input
-                    inputMode="decimal"
-                    value={frangoDelivery ? formatMoneyInput(frangoDelivery) : ""}
-                    placeholder="0,00"
-                    onChange={(e) => setFrangoDelivery(parseMoney(e.target.value))}
-                  />
+            <>
+              <div className="subbrand-date-strip">
+                <label className="subbrand-date-input">
+                  <span>Data:</span>
+                  <input type="date" value={date} onChange={(e) => handleDateChange(e.target.value)} required />
+                </label>
+                <div className="subbrand-takeat-pill">
+                  <span>Takeat Delivery: <b>{formatMoney(currentTotalDelivery)}</b></span><br />
+                  <span>Takeat iFood: <b>{formatMoney(currentTotalIfood)}</b></span>
                 </div>
               </div>
 
-              <div className="subbrand-compact-tile">
-                <span className="subbrand-compact-title"><ShoppingBag size={14} color="#f59e0b" /> Frango iFood</span>
-                <span className="subbrand-compact-sub">Vendas Chicken</span>
-                <div className="subbrand-compact-input-row">
-                  <i>R$</i>
-                  <input
-                    inputMode="decimal"
-                    value={frangoIfood ? formatMoneyInput(frangoIfood) : ""}
-                    placeholder="0,00"
-                    onChange={(e) => setFrangoIfood(parseMoney(e.target.value))}
-                  />
-                </div>
-              </div>
+              {unit.type === "house190" ? (
+                <div className="subbrand-compact-grid">
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><Truck size={14} color="var(--brand)" /> X-Tudo Delivery</span>
+                    <span className="subbrand-compact-sub">House Delivery: {formatMoney(houseDeliveryRemaining)}</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={xtudoDelivery ? formatMoneyInput(xtudoDelivery) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setXtudoDelivery(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
 
-              <div className="subbrand-compact-tile">
-                <span className="subbrand-compact-title"><Truck size={14} color="#ec4899" /> Pizza Delivery</span>
-                <span className="subbrand-compact-sub">Vendas Pizza</span>
-                <div className="subbrand-compact-input-row">
-                  <i>R$</i>
-                  <input
-                    inputMode="decimal"
-                    value={pizzaDelivery ? formatMoneyInput(pizzaDelivery) : ""}
-                    placeholder="0,00"
-                    onChange={(e) => setPizzaDelivery(parseMoney(e.target.value))}
-                  />
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><ShoppingBag size={14} color="var(--brand)" /> X-Tudo iFood</span>
+                    <span className="subbrand-compact-sub">House iFood: {formatMoney(houseIfoodRemaining)}</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={xtudoIfood ? formatMoneyInput(xtudoIfood) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setXtudoIfood(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="subbrand-compact-grid">
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><Truck size={14} color="#f59e0b" /> Frango Delivery</span>
+                    <span className="subbrand-compact-sub">Vendas Chicken</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={frangoDelivery ? formatMoneyInput(frangoDelivery) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setFrangoDelivery(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
 
-              <div className="subbrand-compact-tile">
-                <span className="subbrand-compact-title"><ShoppingBag size={14} color="#ec4899" /> Pizza iFood</span>
-                <span className="subbrand-compact-sub">Vendas Pizza</span>
-                <div className="subbrand-compact-input-row">
-                  <i>R$</i>
-                  <input
-                    inputMode="decimal"
-                    value={pizzaIfood ? formatMoneyInput(pizzaIfood) : ""}
-                    placeholder="0,00"
-                    onChange={(e) => setPizzaIfood(parseMoney(e.target.value))}
-                  />
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><ShoppingBag size={14} color="#f59e0b" /> Frango iFood</span>
+                    <span className="subbrand-compact-sub">Vendas Chicken</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={frangoIfood ? formatMoneyInput(frangoIfood) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setFrangoIfood(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><Truck size={14} color="#ec4899" /> Pizza Delivery</span>
+                    <span className="subbrand-compact-sub">Vendas Pizza</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={pizzaDelivery ? formatMoneyInput(pizzaDelivery) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setPizzaDelivery(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="subbrand-compact-tile">
+                    <span className="subbrand-compact-title"><ShoppingBag size={14} color="#ec4899" /> Pizza iFood</span>
+                    <span className="subbrand-compact-sub">Vendas Pizza</span>
+                    <div className="subbrand-compact-input-row">
+                      <i>R$</i>
+                      <input
+                        inputMode="decimal"
+                        value={pizzaIfood ? formatMoneyInput(pizzaIfood) : ""}
+                        placeholder="0,00"
+                        onChange={(e) => setPizzaIfood(parseMoney(e.target.value))}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {unit.type === "foodpark" && (
-            <small style={{ fontSize: 9.5, color: "var(--text-secondary)", textAlign: "center", display: "block" }}>
-              Burger / Lanches Delivery restante: <b>{formatMoney(burgerDeliveryRemaining)}</b>
-            </small>
+              )}
+              {unit.type === "foodpark" && (
+                <small style={{ fontSize: 9.5, color: "var(--text-secondary)", textAlign: "center", display: "block" }}>
+                  Burger / Lanches Delivery restante: <b>{formatMoney(burgerDeliveryRemaining)}</b>
+                </small>
+              )}
+            </>
           )}
         </div>
 
         <div className="subbrand-modal-footer">
           <button className="primary-button subbrand-save-btn" onClick={() => void handleSave()} disabled={saving}>
-            <Save size={16} /> {saving ? "Salvando..." : "Salvar e Atualizar Bonificação"}
+            <Save size={16} /> {saving ? "Salvando e recalculando..." : tab === "month" ? "Salvar e Atualizar Mês Inteiro" : "Salvar Dia"}
           </button>
         </div>
       </div>
@@ -1787,6 +1987,18 @@ function ProfileScreen({
   onOpenSubBrands: () => void;
 }) {
   const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
+  const unitMonthEntries = entries.filter((e) => e.unitId === unit.id && e.date.startsWith(currentMonthPrefix));
+
+  const totalMonthSalao = unitMonthEntries.reduce((sum, e) => sum + e.salao, 0);
+  const totalMonthDelivery = unitMonthEntries.reduce((sum, e) => sum + e.delivery, 0);
+  const totalMonthIfood = unitMonthEntries.reduce((sum, e) => sum + e.ifood, 0);
+  const totalMonthXtudoDelivery = unitMonthEntries.reduce((sum, e) => sum + (e.deliveryDetails?.xtudo || 0), 0);
+  const totalMonthXtudoIfood = unitMonthEntries.reduce((sum, e) => sum + (e.ifoodDetails?.xtudo || 0), 0);
+  const totalMonthFrangoDelivery = unitMonthEntries.reduce((sum, e) => sum + (e.deliveryDetails?.frango || 0), 0);
+  const totalMonthFrangoIfood = unitMonthEntries.reduce((sum, e) => sum + (e.ifoodDetails?.frango || 0), 0);
+  const totalMonthPizzaDelivery = unitMonthEntries.reduce((sum, e) => sum + (e.deliveryDetails?.pizza || 0), 0);
+  const totalMonthPizzaIfood = unitMonthEntries.reduce((sum, e) => sum + (e.ifoodDetails?.pizza || 0), 0);
+
   const liveRevenue = (record: CmvEntry) => {
     const hasLoadedPeriod = entries.some((sale) => sale.unitId === record.unitId && sale.date >= record.weekStart && sale.date <= record.weekEnd);
     return hasLoadedPeriod ? revenueForPeriod(entries, record.unitId, record.weekStart, record.weekEnd) : record.revenue;
@@ -1807,7 +2019,7 @@ function ProfileScreen({
     });
   }, [monthCmvMetrics.percentage, freelancerSpend, monthCmvMetrics.weeks]);
 
-  const bonus = calculateBonus(unit, entries.filter((entry) => entry.unitId === unit.id), operating);
+  const bonus = calculateBonus(unit, unitMonthEntries, operating);
 
   return (
     <div className="screen-stack">
@@ -1817,11 +2029,47 @@ function ProfileScreen({
           <h1>Minha bonificação</h1>
           <p>Regras aplicadas automaticamente à apuração.</p>
         </div>
-        <button className="primary-button" onClick={onOpenSubBrands}>
-          <Utensils size={16} /> Lançar X-Tudo / Frango
-        </button>
       </div>
 
+      {/* CARD DE FATURAMENTO ACUMULADO (01 AO DIA ATUAL) COM EDIÇÃO RÁPIDA */}
+      <section className="bonus-month-card">
+        <div className="bonus-month-top">
+          <div className="bonus-month-top-info">
+            <span className="eyebrow">Faturamento do Mês (01 ao dia atual)</span>
+            <h3>Total: {formatMoney(totalMonthSalao + totalMonthDelivery + totalMonthIfood)}</h3>
+          </div>
+          <button className="bonus-month-edit-btn" onClick={onOpenSubBrands}>
+            <Utensils size={14} /> Ajustar Sub-marcas do Mês
+          </button>
+        </div>
+        <div className="bonus-month-channels-grid">
+          <div className="bonus-month-tile">
+            <span className="tile-label"><UtensilsCrossed size={13} color="var(--brand)" /> Salão</span>
+            <strong className="tile-val">{formatMoney(totalMonthSalao)}</strong>
+            <small className="tile-sub">Meta: {formatMoney(unit.monthlyGoal * 0.35)}</small>
+          </div>
+          <div className="bonus-month-tile">
+            <span className="tile-label"><Truck size={13} color="#10b981" /> Delivery Próprio</span>
+            <strong className="tile-val">{formatMoney(totalMonthDelivery)}</strong>
+            <small className="tile-sub">
+              {unit.type === "house190"
+                ? `House: ${formatMoney(Math.max(totalMonthDelivery - totalMonthXtudoDelivery, 0))} · X-Tudo: ${formatMoney(totalMonthXtudoDelivery)}`
+                : `Burger: ${formatMoney(Math.max(totalMonthDelivery - totalMonthFrangoDelivery - totalMonthPizzaDelivery, 0))} · Frango: ${formatMoney(totalMonthFrangoDelivery)} · Pizza: ${formatMoney(totalMonthPizzaDelivery)}`}
+            </small>
+          </div>
+          <div className="bonus-month-tile">
+            <span className="tile-label"><ShoppingBag size={13} color="#f59e0b" /> iFood</span>
+            <strong className="tile-val">{formatMoney(totalMonthIfood)}</strong>
+            <small className="tile-sub">
+              {unit.type === "house190"
+                ? `House: ${formatMoney(Math.max(totalMonthIfood - totalMonthXtudoIfood, 0))} · X-Tudo: ${formatMoney(totalMonthXtudoIfood)}`
+                : `Frango: ${formatMoney(totalMonthFrangoIfood)} · Pizza: ${formatMoney(totalMonthPizzaIfood)}`}
+            </small>
+          </div>
+        </div>
+      </section>
+
+      {/* Bônus Conquistado Hero */}
       <section className="bonus-hero surface-card">
         <div>
           <span className="eyebrow">Bônus conquistado</span>
@@ -1847,9 +2095,6 @@ function ProfileScreen({
             <span className="eyebrow">Categorias</span>
             <h2>Progresso da apuração</h2>
           </div>
-          <button className="secondary-button" onClick={onOpenSubBrands}>
-            <PlusCircle size={15} /> Ajustar X-Tudo / Frango
-          </button>
         </div>
         {bonus.categories.map((category) => (
           <article key={category.label}>
@@ -2298,6 +2543,19 @@ export default function HomePage() {
     setToast(`Vendas de ${formatDateBR(normalized.date)} registradas.`);
   };
 
+  const saveBatch = async (updatedEntries: SalesEntry[]) => {
+    if (firebaseConfigured) {
+      const { saveDailySale } = await import("@/lib/firestore-service");
+      await Promise.all(updatedEntries.map((e) => saveDailySale(e)));
+    }
+    setEntries((current) => {
+      const byId = new Map(current.map((e) => [`${e.unitId}_${e.date}`, e]));
+      updatedEntries.forEach((e) => byId.set(`${e.unitId}_${e.date}`, e));
+      return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+    });
+    setToast(`Faturamento de sub-marcas do mês atualizado com sucesso.`);
+  };
+
   const syncTakeat = async (unitId: string, date: string) => {
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
     const entry = await syncTakeatSale(unitId, date);
@@ -2460,6 +2718,7 @@ export default function HomePage() {
           unit={unit}
           entries={entries}
           onSave={save}
+          onSaveBatch={saveBatch}
           onClose={() => setSubBrandModalOpen(false)}
         />
       )}
