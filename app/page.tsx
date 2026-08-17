@@ -4,9 +4,10 @@
 
 import {
   Activity, BarChart3, Bot, Building2, CalendarDays, ChevronDown, ChevronRight,
-  CircleDollarSign, History, Home, Lightbulb, LogOut, Moon, MoreHorizontal,
-  RefreshCw, Rocket, Save, Settings, ShieldCheck, ShoppingBag, Sparkles, Store, Sun, Target,
-  TrendingDown, TrendingUp, Truck, UserRound, UsersRound, UtensilsCrossed, X,
+  CircleDollarSign, DollarSign, History, Home, Lightbulb, LogOut, Moon, MoreHorizontal,
+  PlusCircle, RefreshCw, Rocket, Save, Send, Settings, Share2, ShieldAlert, ShieldCheck,
+  ShoppingBag, Sparkles, Store, Sun, Target, Trash2, TrendingDown, TrendingUp,
+  Truck, Tv, UserRound, UsersRound, UtensilsCrossed, X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AdminGoalEditor } from "./admin-goals";
@@ -16,7 +17,8 @@ import { MANAGEMENT_RULES, UNITS } from "@/lib/config";
 import { formatDateBR, formatMoney, formatMoneyInput, formatPercent, parseMoney } from "@/lib/format";
 import { monthlyCmv, revenueForPeriod } from "@/lib/cmv-calculations";
 import { requestAiAnalysis } from "@/lib/ai-service";
-import type { CmvEntry, OperatingInputs, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
+import { generateDashboardWhatsAppText } from "@/lib/smart-features";
+import type { CmvEntry, FreelancerEntry, OperatingInputs, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
 
 type View = "dashboard" | "launch" | "history" | "cmv" | "ai" | "profile" | "admin";
 type Theme = "light" | "dark" | "system";
@@ -26,11 +28,6 @@ const firebaseConfigured = Boolean(process.env.NEXT_PUBLIC_FIREBASE_API_KEY && p
 const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const entryTotal = (entry: SalesEntry) => entry.salao + entry.delivery + entry.ifood;
 const monthDatesUntil = (date: Date) => Array.from({ length: date.getDate() }, (_, index) => isoDate(new Date(date.getFullYear(), date.getMonth(), index + 1)));
-const mergeSalesEntries = (current: SalesEntry[], incoming: SalesEntry[]) => {
-  const byId = new Map(current.map((entry) => [`${entry.unitId}_${entry.date}`, entry]));
-  incoming.forEach((entry) => byId.set(`${entry.unitId}_${entry.date}`, entry));
-  return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
-};
 
 function IconForChannel({ channel }: { channel: string }) {
   if (channel === "salao") return <UtensilsCrossed size={19} />;
@@ -39,41 +36,119 @@ function IconForChannel({ channel }: { channel: string }) {
 }
 
 function ProgressBar({ value, expected, tone = "brand" }: { value: number; expected?: number; tone?: string }) {
-  return <div className="progress-shell" role="progressbar" aria-valuenow={Math.round(value)} aria-valuemin={0} aria-valuemax={100}>
-    <span className={`progress-fill tone-${tone}`} style={{ width: `${Math.min(Math.max(value, 2), 100)}%` }} />
-    {expected !== undefined && <span className="progress-marker" style={{ left: `${Math.min(Math.max(expected, 1), 99)}%` }} aria-label="Trajetória esperada" />}
-  </div>;
+  return (
+    <div className="progress-shell" role="progressbar" aria-valuenow={Math.round(value)} aria-valuemin={0} aria-valuemax={100}>
+      <span className={`progress-fill tone-${tone}`} style={{ width: `${Math.min(Math.max(value, 2), 100)}%` }} />
+      {expected !== undefined && <span className="progress-marker" style={{ left: `${Math.min(Math.max(expected, 1), 99)}%` }} aria-label="Trajetória esperada" />}
+    </div>
+  );
 }
 
 function ProgressRing({ value, size = 86, tone = "brand" }: { value: number; size?: number; tone?: string }) {
   const radius = 38, circumference = 2 * Math.PI * radius, progress = Math.min(Math.max(value, 0), 100);
-  return <div className={`progress-ring tone-${tone}`} style={{ width: size, height: size }}>
-    <svg viewBox="0 0 88 88" aria-hidden="true"><circle className="ring-track" cx="44" cy="44" r={radius} /><circle className="ring-value" cx="44" cy="44" r={radius} strokeDasharray={circumference} strokeDashoffset={circumference - (progress / 100) * circumference} /></svg>
-    <strong>{Math.round(value)}%</strong>
-  </div>;
+  return (
+    <div className={`progress-ring tone-${tone}`} style={{ width: size, height: size }}>
+      <svg viewBox="0 0 88 88" aria-hidden="true">
+        <circle className="ring-track" cx="44" cy="44" r={radius} />
+        <circle className="ring-value" cx="44" cy="44" r={radius} strokeDasharray={circumference} strokeDashoffset={circumference - (progress / 100) * circumference} />
+      </svg>
+      <strong>{Math.round(value)}%</strong>
+    </div>
+  );
 }
 
 function Trend({ value }: { value: number }) {
   const state = value > 1 ? "up" : value < -1 ? "down" : "stable";
-  return <span className={`trend trend-${state}`}>{state === "up" ? <TrendingUp size={15} /> : state === "down" ? <TrendingDown size={15} /> : <MoreHorizontal size={15} />}{value > 0 ? "+" : ""}{formatPercent(value)} <small>vs. anterior</small></span>;
+  return (
+    <span className={`trend trend-${state}`}>
+      {state === "up" ? <TrendingUp size={15} /> : state === "down" ? <TrendingDown size={15} /> : <MoreHorizontal size={15} />}
+      {value > 0 ? "+" : ""}{formatPercent(value)} <small>vs. anterior</small>
+    </span>
+  );
 }
 
 function Sparkline({ values, target }: { values: number[]; target?: number[] }) {
   if (!values.length) return <div className="spark-empty" />;
   const all = [...values, ...(target || [])], max = Math.max(...all, 1), min = Math.min(...all, 0), range = max - min || 1;
   const points = (series: number[]) => series.map((value, index) => `${(index / Math.max(series.length - 1, 1)) * 100},${46 - ((value - min) / range) * 40}`).join(" ");
-  return <svg className="sparkline" viewBox="0 0 100 50" preserveAspectRatio="none" aria-label="Evolução dos últimos dias">{target && <polyline points={points(target)} className="spark-target" />}<polyline points={points(values)} className="spark-main" /></svg>;
+  return (
+    <svg className="sparkline" viewBox="0 0 100 50" preserveAspectRatio="none" aria-label="Evolução dos últimos dias">
+      {target && <polyline points={points(target)} className="spark-target" />}
+      <polyline points={points(values)} className="spark-main" />
+    </svg>
+  );
 }
 
 function LineChart({ entries, unit }: { entries: SalesEntry[]; unit: UnitConfig }) {
   const daily = entries.slice(-14), values = daily.map(entryTotal), targets = daily.map((entry) => { const [y, m, d] = entry.date.split("-").map(Number); return unit.dailyTargets[new Date(y, m - 1, d).getDay()].total; });
   const max = Math.max(...values, ...targets, 1), x = (i: number) => 8 + (i / Math.max(daily.length - 1, 1)) * 284, y = (v: number) => 128 - (v / max) * 106;
   const points = (series: number[]) => series.map((value, index) => `${x(index)},${y(value)}`).join(" ");
-  return <div className="chart-wrap"><div className="chart-legend"><span><i className="legend-real" /> Realizado</span><span><i className="legend-target" /> Meta diária</span></div><svg className="line-chart" viewBox="0 0 300 155" role="img" aria-label="Faturamento realizado comparado à meta diária">
-    {[25, 55, 85, 115].map((line) => <line key={line} x1="8" x2="292" y1={line} y2={line} className="grid-line" />)}<polyline points={points(targets)} className="line-target" /><polyline points={points(values)} className="line-real" />
-    {values.map((value, index) => <circle key={index} cx={x(index)} cy={y(value)} r="2.6" className="chart-dot" aria-label={`${formatDateBR(daily[index].date)}: ${formatMoney(value)}`} />)}
-    {daily.map((entry, index) => (index % Math.ceil(daily.length / 5) === 0 || index === daily.length - 1) && <text key={entry.date} x={x(index)} y="151" textAnchor="middle">{entry.date.slice(-2)}</text>)}
-  </svg></div>;
+  return (
+    <div className="chart-wrap">
+      <div className="chart-legend">
+        <span><i className="legend-real" /> Realizado</span>
+        <span><i className="legend-target" /> Meta diária</span>
+      </div>
+      <svg className="line-chart" viewBox="0 0 300 155" role="img" aria-label="Faturamento realizado comparado à meta diária">
+        {[25, 55, 85, 115].map((line) => <line key={line} x1="8" x2="292" y1={line} y2={line} className="grid-line" />)}
+        <polyline points={points(targets)} className="line-target" />
+        <polyline points={points(values)} className="line-real" />
+        {values.map((value, index) => <circle key={index} cx={x(index)} cy={y(value)} r="2.6" className="chart-dot" aria-label={`${formatDateBR(daily[index].date)}: ${formatMoney(value)}`} />)}
+        {daily.map((entry, index) => (index % Math.ceil(daily.length / 5) === 0 || index === daily.length - 1) && <text key={entry.date} x={x(index)} y="151" textAnchor="middle">{entry.date.slice(-2)}</text>)}
+      </svg>
+    </div>
+  );
+}
+
+function StackedChannelChart({ entries, unit }: { entries: SalesEntry[]; unit: UnitConfig }) {
+  const daily = entries.slice(-10);
+  if (!daily.length) return <div className="chart-empty">Aguardando dados de vendas</div>;
+
+  const maxTotal = Math.max(
+    ...daily.map(entryTotal),
+    ...daily.map((e) => {
+      const [y, m, d] = e.date.split("-").map(Number);
+      return unit.dailyTargets[new Date(y, m - 1, d).getDay()].total;
+    }),
+    1
+  );
+
+  return (
+    <div className="stacked-chart-wrap">
+      <div className="stacked-chart-legend">
+        <span><i style={{ background: "var(--brand)" }} /> Salão</span>
+        <span><i style={{ background: "var(--success)" }} /> Delivery</span>
+        <span><i style={{ background: "var(--warning)" }} /> iFood</span>
+        <span><i style={{ borderTop: "2px dashed var(--text-tertiary)", width: 14, height: 0 }} /> Meta do dia</span>
+      </div>
+      <div className="stacked-bars-grid">
+        {daily.map((entry) => {
+          const [y, m, d] = entry.date.split("-").map(Number);
+          const target = unit.dailyTargets[new Date(y, m - 1, d).getDay()].total;
+          const tot = entryTotal(entry);
+          const targetH = (target / maxTotal) * 100;
+          const dayName = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][new Date(y, m - 1, d).getDay()];
+
+          return (
+            <div className="stacked-col" key={entry.date}>
+              <div className="stacked-bar-track">
+                <span className="stacked-target-line" style={{ bottom: `${targetH}%` }} title={`Meta: ${formatMoney(target)}`} />
+                <div className="stacked-bar-fill" style={{ height: `${(tot / maxTotal) * 100}%` }}>
+                  <span className="bar-part ifood" style={{ height: `${tot ? (entry.ifood / tot) * 100 : 0}%` }} title={`iFood: ${formatMoney(entry.ifood)}`} />
+                  <span className="bar-part delivery" style={{ height: `${tot ? (entry.delivery / tot) * 100 : 0}%` }} title={`Delivery: ${formatMoney(entry.delivery)}`} />
+                  <span className="bar-part salao" style={{ height: `${tot ? (entry.salao / tot) * 100 : 0}%` }} title={`Salão: ${formatMoney(entry.salao)}`} />
+                </div>
+              </div>
+              <div className="stacked-label">
+                <strong>{entry.date.slice(-2)}</strong>
+                <small>{dayName}</small>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function Donut({ channels }: { channels: { label: string; realized: number; key: string }[] }) {
@@ -82,21 +157,148 @@ function Donut({ channels }: { channels: { label: string; realized: number; key:
     const percent = (channel.realized / total) * 100, offset = items.reduce((sum, item) => sum + item.percent, 0);
     return [...items, { channel, percent, offset }];
   }, []);
-  return <div className="donut-layout"><svg className="donut" viewBox="0 0 42 42" aria-label="Participação por canal"><circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--surface-secondary)" strokeWidth="6" />{slices.map(({ channel, percent, offset }) => <circle key={channel.key} cx="21" cy="21" r="15.9" fill="none" stroke={colors[channel.key]} strokeWidth="6" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={25 - offset} />)}</svg><div className="donut-legend">{channels.map((channel) => <div key={channel.key}><i style={{ background: colors[channel.key] }} /><span>{channel.label}</span><strong>{formatPercent((channel.realized / total) * 100)}</strong></div>)}</div></div>;
+  return (
+    <div className="donut-layout">
+      <svg className="donut" viewBox="0 0 42 42" aria-label="Participação por canal">
+        <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--surface-secondary)" strokeWidth="6" />
+        {slices.map(({ channel, percent, offset }) => (
+          <circle
+            key={channel.key}
+            cx="21"
+            cy="21"
+            r="15.9"
+            fill="none"
+            stroke={colors[channel.key]}
+            strokeWidth="6"
+            strokeDasharray={`${percent} ${100 - percent}`}
+            strokeDashoffset={25 - offset}
+          />
+        ))}
+      </svg>
+      <div className="donut-legend">
+        {channels.map((channel) => (
+          <div key={channel.key}>
+            <i style={{ background: colors[channel.key] }} />
+            <span>{channel.label}</span>
+            <strong>{formatPercent((channel.realized / total) * 100)}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function Dashboard({ unit, entries, cmvRecords, onNavigate, syncStatus, onSync }: { unit: UnitConfig; entries: SalesEntry[]; cmvRecords: CmvEntry[]; onNavigate: (view: View) => void; syncStatus: SyncStatus; onSync: () => void }) {
-  const metrics = useMemo(() => calculatePerformance(unit, entries, currentDate), [unit, entries]), currentEntries = entries.filter((entry) => entry.unitId === unit.id), recent = currentEntries.slice(-7);
+function TvModeView({ unit, entries, onClose }: { unit: UnitConfig; entries: SalesEntry[]; onClose: () => void }) {
+  const metrics = calculatePerformance(unit, entries, currentDate);
+  const todayEntry = entries.find((e) => e.unitId === unit.id && e.date === isoDate(currentDate));
+  const [y, m, d] = isoDate(currentDate).split("-").map(Number);
+  const todayTarget = unit.dailyTargets[new Date(y, m - 1, d).getDay()].total;
+  const todayTotal = todayEntry ? entryTotal(todayEntry) : 0;
+  const todayPct = todayTarget > 0 ? (todayTotal / todayTarget) * 100 : 0;
+
+  return (
+    <div className="tv-mode-overlay">
+      <header className="tv-header">
+        <div className="tv-brand-block">
+          <span className="brand-mark"><BarChart3 size={32} /></span>
+          <div>
+            <h1>{unit.name}</h1>
+            <span>Painel Operacional · {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</span>
+          </div>
+        </div>
+        <button className="tv-exit-btn" onClick={onClose}>
+          <X size={18} /> Sair do Modo TV
+        </button>
+      </header>
+
+      <section className="tv-kpi-main">
+        <span>Faturamento de Hoje</span>
+        <div className="tv-kpi-val">{formatMoney(todayTotal)}</div>
+        <div className="tv-target-badge">
+          Meta do dia: <b>{formatMoney(todayTarget)}</b> ({formatPercent(todayPct)})
+        </div>
+        <div className="tv-progress-container">
+          <div className="tv-progress-fill" style={{ width: `${Math.min(todayPct, 100)}%` }} />
+        </div>
+      </section>
+
+      <section className="tv-channels-grid">
+        <div className="tv-channel-card">
+          <span>Salão</span>
+          <strong>{formatMoney(todayEntry?.salao || 0)}</strong>
+          <small>{todayTotal > 0 ? formatPercent(((todayEntry?.salao || 0) / todayTotal) * 100) : "0%"} do dia</small>
+        </div>
+        <div className="tv-channel-card">
+          <span>Delivery Próprio</span>
+          <strong>{formatMoney(todayEntry?.delivery || 0)}</strong>
+          <small>{todayTotal > 0 ? formatPercent(((todayEntry?.delivery || 0) / todayTotal) * 100) : "0%"} do dia</small>
+        </div>
+        <div className="tv-channel-card">
+          <span>iFood</span>
+          <strong>{formatMoney(todayEntry?.ifood || 0)}</strong>
+          <small>{todayTotal > 0 ? formatPercent(((todayEntry?.ifood || 0) / todayTotal) * 100) : "0%"} do dia</small>
+        </div>
+      </section>
+
+      <footer className="tv-footer-stats">
+        <div>
+          <span>Total no Mês</span>
+          <strong>{formatMoney(metrics.total)}</strong>
+        </div>
+        <div>
+          <span>Progresso da Meta Mensal</span>
+          <strong>{formatPercent(metrics.percentage)}</strong>
+        </div>
+        <div>
+          <span>Média Necessária</span>
+          <strong>{formatMoney(metrics.necessaryAverage)}/dia</strong>
+        </div>
+        <div>
+          <span>Projeção de Fechamento</span>
+          <strong>{formatMoney(metrics.projection)}</strong>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function Dashboard({
+  unit,
+  entries,
+  cmvRecords,
+  freelancers,
+  onNavigate,
+  syncStatus,
+  onSync,
+  onOpenFreelancers,
+}: {
+  unit: UnitConfig;
+  entries: SalesEntry[];
+  cmvRecords: CmvEntry[];
+  freelancers: FreelancerEntry[];
+  onNavigate: (view: View) => void;
+  syncStatus: SyncStatus;
+  onSync: () => void;
+  onOpenFreelancers: () => void;
+}) {
+  const [tvMode, setTvMode] = useState(false);
+  const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
+  const [chartType, setChartType] = useState<"stacked" | "line">("stacked");
+
+  const metrics = useMemo(() => calculatePerformance(unit, entries, currentDate), [unit, entries]);
+  const currentEntries = entries.filter((entry) => entry.unitId === unit.id);
+  const recent = currentEntries.slice(-7);
   const channelValues = (key: "salao" | "delivery" | "ifood") => recent.map((entry) => entry[key]);
   const statusTone = metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger";
-  const bonus = calculateBonus(unit, currentEntries, { cmvPercent: 32.8, freelancerSpend: 1180 });
-  const realizedPosition = Math.min(Math.max(metrics.percentage, 0), 100);
-  const expectedPosition = Math.min(Math.max((metrics.expected / unit.monthlyGoal) * 100, 0), 100);
-  const trajectoryGapStart = Math.min(realizedPosition, expectedPosition);
-  const trajectoryGapWidth = Math.abs(realizedPosition - expectedPosition);
+
+  // Total Freelancers spent for this unit
+  const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
+  const freelancerSpend = useMemo(
+    () => freelancers.filter((f) => f.unitId === unit.id).reduce((sum, f) => sum + f.amount, 0),
+    [freelancers, unit.id]
+  );
 
   // Real-time Monthly CMV calculations for current unit
-  const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
   const liveRevenue = (record: CmvEntry) => {
     const hasLoadedPeriod = entries.some((sale) => sale.unitId === record.unitId && sale.date >= record.weekStart && sale.date <= record.weekEnd);
     return hasLoadedPeriod ? revenueForPeriod(entries, record.unitId, record.weekStart, record.weekEnd) : record.revenue;
@@ -105,128 +307,866 @@ function Dashboard({ unit, entries, cmvRecords, onNavigate, syncStatus, onSync }
   const monthCmvMetrics = useMemo(() => monthlyCmv(liveCmvRecords, unit, currentMonthPrefix), [liveCmvRecords, unit, currentMonthPrefix]);
   const cmvHasData = monthCmvMetrics.weeks > 0;
 
-  return <div className="screen-stack dashboard-screen">
-    <section className={`sync-status-card takeat-state-${syncStatus.state}`} aria-live="polite"><span className="sync-status-icon"><RefreshCw size={18} /></span><div><strong>{syncStatus.state === "syncing" ? "Atualizando vendas" : syncStatus.state === "error" ? "Falha na atualização" : syncStatus.state === "success" ? "Takeat atualizada" : "Integração Takeat"}</strong><small>{syncStatus.message}</small></div><button type="button" onClick={onSync} disabled={syncStatus.state === "syncing"}>{syncStatus.state === "syncing" ? "Aguarde" : "Atualizar"}</button></section>
-    <section className="hero-card surface-card entrance"><div className="hero-topline"><span>Faturamento do mês</span><span className="live-pill"><i /> Atualizado agora</span></div><div className="hero-grid"><div><strong className="hero-value">{formatMoney(metrics.total)}</strong><p><b>{formatPercent(metrics.percentage)}</b> da meta mensal</p></div><ProgressRing value={metrics.percentage} size={96} /></div>
-      <div className={`hero-trajectory ${metrics.gap >= 0 ? "hero-ahead" : "hero-behind"}`}>
-        <div className="hero-trajectory-labels"><span>Realizado <b>{formatPercent(realizedPosition)}</b></span><span>Ritmo de hoje <b>{formatPercent(expectedPosition)}</b></span></div>
-        <div className="hero-progress-track" role="progressbar" aria-label="Progresso do faturamento mensal" aria-valuenow={Math.round(realizedPosition)} aria-valuemin={0} aria-valuemax={100}>
-          <span className="hero-progress-fill" style={{ width: `${realizedPosition}%` }}><i /></span>
-          <span className="hero-progress-gap" style={{ left: `${trajectoryGapStart}%`, width: `${trajectoryGapWidth}%` }} />
-          <span className="hero-progress-pin" style={{ left: `${realizedPosition}%` }} />
-          <span className="hero-progress-today" style={{ left: `${expectedPosition}%` }}><i /><em>Hoje</em></span>
-        </div>
-      </div>
-      <div className="hero-foot"><div><span>Meta</span><strong>{formatMoney(unit.monthlyGoal)}</strong></div><div><span>Falta</span><strong>{formatMoney(metrics.missing)}</strong></div><div><span>Supermeta</span><strong>{formatMoney(unit.superGoal)}</strong></div></div></section>
+  const bonus = calculateBonus(unit, currentEntries, {
+    cmvPercent: cmvHasData ? monthCmvMetrics.percentage : 32.0,
+    freelancerSpend,
+  });
 
-    {/* CMV do Mês Widget */}
-    <section className="surface-card cmv-dashboard-widget entrance delay-1">
-      <div className="cmv-widget-head">
-        <div className="cmv-widget-title">
-          <span className="metric-icon icon-crimson"><CircleDollarSign size={20} /></span>
-          <div>
-            <span className="eyebrow">Gestão de Custos</span>
-            <h2>CMV do Mês</h2>
-          </div>
-        </div>
-        <span className={`status-badge status-${cmvHasData ? (monthCmvMetrics.percentage <= unit.cmvTargetPercent ? "success" : "danger") : "neutral"}`}>
-          Meta ≤ {formatPercent(unit.cmvTargetPercent)}
-        </span>
-      </div>
+  const realizedPosition = Math.min(Math.max(metrics.percentage, 0), 100);
+  const expectedPosition = Math.min(Math.max((metrics.expected / unit.monthlyGoal) * 100, 0), 100);
+  const trajectoryGapStart = Math.min(realizedPosition, expectedPosition);
+  const trajectoryGapWidth = Math.abs(realizedPosition - expectedPosition);
 
-      <div className="cmv-widget-body">
-        <div className="cmv-widget-main-stat">
-          <strong className={cmvHasData ? (monthCmvMetrics.percentage <= unit.cmvTargetPercent ? "positive" : "negative") : ""}>
-            {cmvHasData ? formatPercent(monthCmvMetrics.percentage) : "—"}
-          </strong>
-          <p>
-            {cmvHasData
-              ? monthCmvMetrics.variancePoints <= 0
-                ? `${formatPercent(Math.abs(monthCmvMetrics.variancePoints))} abaixo do limite (Saudável)`
-                : `${formatPercent(monthCmvMetrics.variancePoints)} acima da meta (Atenção aos custos)`
-              : "Nenhuma conferência salva neste mês ainda"}
-          </p>
-        </div>
-        <div className="cmv-widget-details">
-          <div>
-            <span>Custos lançados</span>
-            <strong>{formatMoney(monthCmvMetrics.totalCost)}</strong>
-          </div>
-          <div>
-            <span>Faturamento Takeat</span>
-            <strong>{formatMoney(monthCmvMetrics.revenue)}</strong>
-          </div>
-          <div>
-            <span>Semanas conferidas</span>
-            <strong>{monthCmvMetrics.weeks} semana{monthCmvMetrics.weeks === 1 ? "" : "s"}</strong>
-          </div>
-        </div>
-      </div>
+  // Takeat sessions / orders calculation
+  const totalSessions = currentEntries.reduce((sum, e) => sum + (e.sourceSummary?.sessions || 0), 0);
+  const averageTicket = totalSessions > 0 ? metrics.total / totalSessions : 0;
 
-      <div className="cmv-widget-actions">
-        <button className="primary-button cmv-widget-btn" onClick={() => onNavigate("cmv")}>
-          <CircleDollarSign size={16} /> Abrir módulo de CMV / Lançar custos <ChevronRight size={15} />
+  const shareWhatsApp = () => {
+    const text = generateDashboardWhatsAppText({
+      unitName: unit.name,
+      metrics,
+      bonusConquered: bonus.conquered,
+      freelancerTotal: freelancerSpend,
+      cmvPercent: cmvHasData ? monthCmvMetrics.percentage : undefined,
+    });
+    void navigator.clipboard.writeText(text);
+    setCopiedWhatsApp(true);
+    setTimeout(() => setCopiedWhatsApp(false), 3000);
+    const encoded = encodeURIComponent(text);
+    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
+  };
+
+  return (
+    <div className="screen-stack dashboard-screen">
+      {tvMode && <TvModeView unit={unit} entries={entries} onClose={() => setTvMode(false)} />}
+
+      {/* Top Bar Actions: TV Mode and WhatsApp */}
+      <div className="dashboard-top-actions">
+        <button className="tv-toggle-btn" onClick={() => setTvMode(true)}>
+          <Tv size={15} /> Modo TV / Salão
+        </button>
+        <button className="whatsapp-share-btn" onClick={shareWhatsApp}>
+          <Share2 size={15} /> {copiedWhatsApp ? "Copiado!" : "Compartilhar Resumo WhatsApp"}
         </button>
       </div>
-    </section>
 
-    <section className={`health-card health-${metrics.health} entrance delay-1`}><div className="health-icon"><Activity size={23} /></div><div className="health-copy"><span className="eyebrow">Saúde da meta</span><h2>{metrics.healthLabel}</h2><p>Você está <strong>{formatMoney(Math.abs(metrics.gap))} {metrics.gap >= 0 ? "acima" : "abaixo"}</strong> da trajetória esperada.</p></div><div className="health-projection"><span>No ritmo atual</span><strong>{formatMoney(metrics.projection)}</strong></div></section>
-    <section className="surface-card trajectory-card entrance delay-2"><div className="section-heading"><div><span className="eyebrow">Trajetória do mês</span><h2>Realizado x esperado</h2></div><span className={`status-badge status-${statusTone}`}>{formatPercent(metrics.trajectoryPercentage)} do ritmo</span></div><div className="trajectory-values"><div><span>Realizado</span><strong>{formatMoney(metrics.total)}</strong></div><div><span>Esperado até hoje</span><strong>{formatMoney(metrics.expected)}</strong></div><div className={metrics.gap >= 0 ? "positive" : "negative"}><span>Diferença</span><strong>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong></div></div>
-      <div className={`trajectory-progress ${metrics.gap >= 0 ? "trajectory-ahead" : "trajectory-behind"}`}>
-        <div className="trajectory-scale"><span>Início</span><b style={{ left: `${expectedPosition}%` }}>Hoje · {formatPercent(expectedPosition)} da meta</b><span>Meta mensal</span></div>
-        <div className="trajectory-track" role="progressbar" aria-label="Progresso realizado em relação à trajetória do mês" aria-valuenow={Math.round(realizedPosition)} aria-valuemin={0} aria-valuemax={100}>
-          <span className="trajectory-fill" style={{ width: `${realizedPosition}%` }}><i /></span>
-          <span className="trajectory-gap-zone" style={{ left: `${trajectoryGapStart}%`, width: `${trajectoryGapWidth}%` }} />
-          <span className="trajectory-today-marker" style={{ left: `${expectedPosition}%` }}><i /><em>Esperado</em></span>
-          <span className="trajectory-realized-pin" style={{ left: `${realizedPosition}%` }} />
+      <section className={`sync-status-card takeat-state-${syncStatus.state}`} aria-live="polite">
+        <span className="sync-status-icon"><RefreshCw size={18} /></span>
+        <div>
+          <strong>
+            {syncStatus.state === "syncing"
+              ? "Atualizando vendas"
+              : syncStatus.state === "error"
+                ? "Falha na atualização"
+                : syncStatus.state === "success"
+                  ? "Takeat atualizada"
+                  : "Integração Takeat"}
+          </strong>
+          <small>{syncStatus.message}</small>
         </div>
-        <div className="trajectory-legend"><span><i className="legend-achieved" />Realizado <b>{formatPercent(realizedPosition)}</b></span><span><i className="legend-expected" />Esperado <b>{formatPercent(expectedPosition)}</b></span><strong className={metrics.gap >= 0 ? "positive" : "negative"}>{metrics.gap >= 0 ? "Ritmo adiantado" : `${formatPercent(Math.max(100 - metrics.trajectoryPercentage, 0))} abaixo do ritmo`}</strong></div>
+        <button type="button" onClick={onSync} disabled={syncStatus.state === "syncing"}>
+          {syncStatus.state === "syncing" ? "Aguarde" : "Atualizar"}
+        </button>
+      </section>
+
+      {/* Hero Card */}
+      <section className="hero-card surface-card entrance">
+        <div className="hero-topline">
+          <span>Faturamento do mês</span>
+          <span className="live-pill"><i /> Atualizado agora</span>
+        </div>
+        <div className="hero-grid">
+          <div>
+            <strong className="hero-value">{formatMoney(metrics.total)}</strong>
+            <p><b>{formatPercent(metrics.percentage)}</b> da meta mensal</p>
+          </div>
+          <ProgressRing value={metrics.percentage} size={96} />
+        </div>
+        <div className={`hero-trajectory ${metrics.gap >= 0 ? "hero-ahead" : "hero-behind"}`}>
+          <div className="hero-trajectory-labels">
+            <span>Realizado <b>{formatPercent(realizedPosition)}</b></span>
+            <span>Ritmo de hoje <b>{formatPercent(expectedPosition)}</b></span>
+          </div>
+          <div
+            className="hero-progress-track"
+            role="progressbar"
+            aria-label="Progresso do faturamento mensal"
+            aria-valuenow={Math.round(realizedPosition)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span className="hero-progress-fill" style={{ width: `${realizedPosition}%` }}><i /></span>
+            <span className="hero-progress-gap" style={{ left: `${trajectoryGapStart}%`, width: `${trajectoryGapWidth}%` }} />
+            <span className="hero-progress-pin" style={{ left: `${realizedPosition}%` }} />
+            <span className="hero-progress-today" style={{ left: `${expectedPosition}%` }}><i /><em>Hoje</em></span>
+          </div>
+        </div>
+        <div className="hero-foot">
+          <div>
+            <span>Meta</span>
+            <strong>{formatMoney(unit.monthlyGoal)}</strong>
+          </div>
+          <div>
+            <span>Falta</span>
+            <strong>{formatMoney(metrics.missing)}</strong>
+          </div>
+          <div>
+            <span>Supermeta</span>
+            <strong>{formatMoney(unit.superGoal)}</strong>
+          </div>
+        </div>
+      </section>
+
+      {/* CMV do Mês Widget */}
+      <section className="surface-card cmv-dashboard-widget entrance delay-1">
+        <div className="cmv-widget-head">
+          <div className="cmv-widget-title">
+            <span className="metric-icon icon-crimson"><CircleDollarSign size={20} /></span>
+            <div>
+              <span className="eyebrow">Gestão de Custos</span>
+              <h2>CMV do Mês</h2>
+            </div>
+          </div>
+          <span className={`status-badge status-${cmvHasData ? (monthCmvMetrics.percentage <= unit.cmvTargetPercent ? "success" : "danger") : "neutral"}`}>
+            Meta ≤ {formatPercent(unit.cmvTargetPercent)}
+          </span>
+        </div>
+
+        <div className="cmv-widget-body">
+          <div className="cmv-widget-main-stat">
+            <strong className={cmvHasData ? (monthCmvMetrics.percentage <= unit.cmvTargetPercent ? "positive" : "negative") : ""}>
+              {cmvHasData ? formatPercent(monthCmvMetrics.percentage) : "—"}
+            </strong>
+            <p>
+              {cmvHasData
+                ? monthCmvMetrics.variancePoints <= 0
+                  ? `${formatPercent(Math.abs(monthCmvMetrics.variancePoints))} abaixo do limite (Saudável)`
+                  : `${formatPercent(monthCmvMetrics.variancePoints)} acima da meta (Atenção aos custos)`
+                : "Nenhuma conferência salva neste mês ainda"}
+            </p>
+          </div>
+          <div className="cmv-widget-details">
+            <div>
+              <span>Custos lançados</span>
+              <strong>{formatMoney(monthCmvMetrics.totalCost)}</strong>
+            </div>
+            <div>
+              <span>Faturamento Takeat</span>
+              <strong>{formatMoney(monthCmvMetrics.revenue)}</strong>
+            </div>
+            <div>
+              <span>Semanas conferidas</span>
+              <strong>{monthCmvMetrics.weeks} semana{monthCmvMetrics.weeks === 1 ? "" : "s"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="cmv-widget-actions">
+          <button className="primary-button cmv-widget-btn" onClick={() => onNavigate("cmv")}>
+            <CircleDollarSign size={16} /> Abrir módulo de CMV / Lançar custos <ChevronRight size={15} />
+          </button>
+        </div>
+      </section>
+
+      {/* Widget de Controle de Freelancers */}
+      <section className="surface-card cmv-dashboard-widget entrance delay-1">
+        <div className="cmv-widget-head">
+          <div className="cmv-widget-title">
+            <span className="metric-icon icon-purple"><UsersRound size={20} /></span>
+            <div>
+              <span className="eyebrow">Operação e Equipe</span>
+              <h2>Diárias de Freelancers</h2>
+            </div>
+          </div>
+          <span className={`status-badge status-${freelancerSpend <= 1500 ? "success" : "danger"}`}>
+            {freelancerSpend <= 1500 ? "Dentro do limite (≤ R$ 1.500)" : "Estourou teto (Bônus bloqueado)"}
+          </span>
+        </div>
+
+        <div className="freelancer-cap-bar">
+          <div className="freelancer-cap-head">
+            <span>Gasto acumulado no mês: <b>{formatMoney(freelancerSpend)}</b></span>
+            <span>Teto máximo: <b>R$ 1.500,00</b></span>
+          </div>
+          <div className="freelancer-cap-track">
+            <div
+              className="freelancer-cap-fill"
+              style={{
+                width: `${Math.min((freelancerSpend / 1500) * 100, 100)}%`,
+                background: freelancerSpend <= 1200 ? "var(--success)" : freelancerSpend <= 1500 ? "var(--warning)" : "var(--danger)",
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="cmv-widget-actions">
+          <button className="secondary-button" onClick={onOpenFreelancers}>
+            <PlusCircle size={16} /> Lançar / Gerenciar Diaristas <ChevronRight size={15} />
+          </button>
+        </div>
+      </section>
+
+      {/* Health Card */}
+      <section className={`health-card health-${metrics.health} entrance delay-1`}>
+        <div className="health-icon"><Activity size={23} /></div>
+        <div className="health-copy">
+          <span className="eyebrow">Saúde da meta</span>
+          <h2>{metrics.healthLabel}</h2>
+          <p>
+            Você está <strong>{formatMoney(Math.abs(metrics.gap))} {metrics.gap >= 0 ? "acima" : "abaixo"}</strong> da trajetória esperada.
+          </p>
+        </div>
+        <div className="health-projection">
+          <span>No ritmo atual</span>
+          <strong>{formatMoney(metrics.projection)}</strong>
+        </div>
+      </section>
+
+      {/* Trajectory Card */}
+      <section className="surface-card trajectory-card entrance delay-2">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Trajetória do mês</span>
+            <h2>Realizado x esperado</h2>
+          </div>
+          <span className={`status-badge status-${statusTone}`}>{formatPercent(metrics.trajectoryPercentage)} do ritmo</span>
+        </div>
+        <div className="trajectory-values">
+          <div>
+            <span>Realizado</span>
+            <strong>{formatMoney(metrics.total)}</strong>
+          </div>
+          <div>
+            <span>Esperado até hoje</span>
+            <strong>{formatMoney(metrics.expected)}</strong>
+          </div>
+          <div className={metrics.gap >= 0 ? "positive" : "negative"}>
+            <span>Diferença</span>
+            <strong>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong>
+          </div>
+        </div>
+        <div className={`trajectory-progress ${metrics.gap >= 0 ? "trajectory-ahead" : "trajectory-behind"}`}>
+          <div className="trajectory-scale">
+            <span>Início</span>
+            <b style={{ left: `${expectedPosition}%` }}>Hoje · {formatPercent(expectedPosition)} da meta</b>
+            <span>Meta mensal</span>
+          </div>
+          <div
+            className="trajectory-track"
+            role="progressbar"
+            aria-label="Progresso realizado em relação à trajetória do mês"
+            aria-valuenow={Math.round(realizedPosition)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <span className="trajectory-fill" style={{ width: `${realizedPosition}%` }}><i /></span>
+            <span className="trajectory-gap-zone" style={{ left: `${trajectoryGapStart}%`, width: `${trajectoryGapWidth}%` }} />
+            <span className="trajectory-today-marker" style={{ left: `${expectedPosition}%` }}><i /><em>Esperado</em></span>
+            <span className="trajectory-realized-pin" style={{ left: `${realizedPosition}%` }} />
+          </div>
+          <div className="trajectory-legend">
+            <span><i className="legend-achieved" />Realizado <b>{formatPercent(realizedPosition)}</b></span>
+            <span><i className="legend-expected" />Esperado <b>{formatPercent(expectedPosition)}</b></span>
+            <strong className={metrics.gap >= 0 ? "positive" : "negative"}>
+              {metrics.gap >= 0 ? "Ritmo adiantado" : `${formatPercent(Math.max(100 - metrics.trajectoryPercentage, 0))} abaixo do ritmo`}
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      {/* Performance por canal */}
+      <div className="section-heading channels-heading">
+        <div>
+          <span className="eyebrow">Performance por canal</span>
+          <h2>Onde o resultado acontece</h2>
+        </div>
+        <button className="text-button" onClick={() => onNavigate("history")}>
+          Ver histórico <ChevronRight size={16} />
+        </button>
       </div>
-    </section>
-    <div className="section-heading channels-heading"><div><span className="eyebrow">Performance por canal</span><h2>Onde o resultado acontece</h2></div><button className="text-button" onClick={() => onNavigate("history")}>Ver histórico <ChevronRight size={16} /></button></div>
-    <section className="channel-scroller">{metrics.channels.map((channel) => <article className="channel-card surface-card" key={channel.key}><div className="channel-head"><span className={`channel-icon channel-${channel.key}`}><IconForChannel channel={channel.key} /></span><ProgressRing value={channel.percentage} size={62} tone={channel.key} /></div><span className="eyebrow">{channel.label}</span><strong className="channel-value">{formatMoney(channel.realized)}</strong><p>de {formatMoney(channel.goal)}</p><ProgressBar value={channel.percentage} tone={channel.key} /><div className="channel-bottom"><span>Faltam {formatMoney(Math.max(-channel.gap, 0))}</span><Trend value={channel.trend} /></div><Sparkline values={channelValues(channel.key)} /></article>)}</section>
-    <section className="dashboard-grid"><article className="surface-card chart-card span-2"><div className="section-heading"><div><span className="eyebrow">Evolução diária</span><h2>Últimos 14 dias</h2></div><span className="chart-chip"><CalendarDays size={15} /> Agosto</span></div><LineChart entries={currentEntries} unit={unit} /></article><article className="surface-card chart-card"><div className="section-heading"><div><span className="eyebrow">Composição</span><h2>Participação</h2></div></div><Donut channels={metrics.channels} /></article></section>
-    <section className="metrics-grid"><article className="surface-card compact-metric"><span className="metric-icon icon-purple"><Rocket size={19} /></span><div><span>Projeção do mês</span><strong>{formatMoney(metrics.projection)}</strong><small className={metrics.projection >= unit.monthlyGoal ? "positive" : "negative"}>{metrics.projection >= unit.monthlyGoal ? "+" : "−"}{formatMoney(Math.abs(metrics.projection - unit.monthlyGoal))} vs. meta</small></div></article><article className="surface-card compact-metric"><span className="metric-icon icon-blue"><Target size={19} /></span><div><span>Média necessária</span><strong>{formatMoney(metrics.necessaryAverage)}<small>/dia</small></strong><small>{metrics.remainingDays} dias restantes</small></div></article><article className="surface-card compact-metric"><span className="metric-icon icon-green"><BarChart3 size={19} /></span><div><span>Média últimos 7 dias</span><strong>{formatMoney(metrics.last7Average)}</strong><Trend value={metrics.weeklyEvolution} /></div></article></section>
-    <section className="bonus-preview surface-card"><div className="bonus-copy"><span className="metric-icon icon-amber"><CircleDollarSign size={20} /></span><div><span className="eyebrow">Minha bonificação</span><h2>{formatMoney(bonus.conquered)} conquistados</h2><p>Potencial total de {formatMoney(bonus.potential)}</p></div></div><ProgressRing value={(bonus.conquered / bonus.potential) * 100} size={68} tone="warning" /><button className="secondary-button" onClick={() => onNavigate("profile")}>Ver detalhamento <ChevronRight size={16} /></button></section>
-    <section className="ai-card"><div className="ai-glow" /><div className="ai-label"><Sparkles size={17} /> Insight House IA</div><h2>{metrics.worstChannel.label} precisa de atenção</h2><p>O canal está em {formatPercent(metrics.worstChannel.percentage)} da meta e é o principal desvio atual. A média necessária da unidade subiu para <strong>{formatMoney(metrics.necessaryAverage)}/dia</strong>.</p><div className="ai-actions"><button className="ai-primary" onClick={() => onNavigate("ai")}><Sparkles size={17} /> Ver análise completa</button><button className="ai-secondary" onClick={() => onNavigate("ai")}>Gerar plano de ação</button></div></section>
-  </div>;
+      <section className="channel-scroller">
+        {metrics.channels.map((channel) => (
+          <article className="channel-card surface-card" key={channel.key}>
+            <div className="channel-head">
+              <span className={`channel-icon channel-${channel.key}`}>
+                <IconForChannel channel={channel.key} />
+              </span>
+              <ProgressRing value={channel.percentage} size={62} tone={channel.key} />
+            </div>
+            <span className="eyebrow">{channel.label}</span>
+            <strong className="channel-value">{formatMoney(channel.realized)}</strong>
+            <p>de {formatMoney(channel.goal)}</p>
+            <ProgressBar value={channel.percentage} tone={channel.key} />
+            <div className="channel-bottom">
+              <span>Faltam {formatMoney(Math.max(-channel.gap, 0))}</span>
+              <Trend value={channel.trend} />
+            </div>
+            <Sparkline values={channelValues(channel.key)} />
+          </article>
+        ))}
+      </section>
+
+      {/* Dashboard Charts: Stacked vs Line */}
+      <section className="dashboard-grid">
+        <article className="surface-card chart-card span-2">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Evolução por canais</span>
+              <h2>Vendas dos últimos dias</h2>
+            </div>
+            <div className="chart-type-toggle">
+              <button className={chartType === "stacked" ? "active" : ""} onClick={() => setChartType("stacked")}>
+                Canais empilhados
+              </button>
+              <button className={chartType === "line" ? "active" : ""} onClick={() => setChartType("line")}>
+                Linha
+              </button>
+            </div>
+          </div>
+          {chartType === "stacked" ? (
+            <StackedChannelChart entries={currentEntries} unit={unit} />
+          ) : (
+            <LineChart entries={currentEntries} unit={unit} />
+          )}
+        </article>
+        <article className="surface-card chart-card">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Composição</span>
+              <h2>Participação</h2>
+            </div>
+          </div>
+          <Donut channels={metrics.channels} />
+        </article>
+      </section>
+
+      {/* Metrics Grid with Ticket Médio & Comandas */}
+      <section className="metrics-grid">
+        <article className="surface-card compact-metric">
+          <span className="metric-icon icon-blue"><ShoppingBag size={19} /></span>
+          <div>
+            <span>Ticket Médio Geral</span>
+            <strong>{averageTicket > 0 ? formatMoney(averageTicket) : "—"}</strong>
+            <small>{totalSessions} comandas registradas</small>
+          </div>
+        </article>
+        <article className="surface-card compact-metric">
+          <span className="metric-icon icon-purple"><Rocket size={19} /></span>
+          <div>
+            <span>Projeção do mês</span>
+            <strong>{formatMoney(metrics.projection)}</strong>
+            <small className={metrics.projection >= unit.monthlyGoal ? "positive" : "negative"}>
+              {metrics.projection >= unit.monthlyGoal ? "+" : "−"}{formatMoney(Math.abs(metrics.projection - unit.monthlyGoal))} vs. meta
+            </small>
+          </div>
+        </article>
+        <article className="surface-card compact-metric">
+          <span className="metric-icon icon-blue"><Target size={19} /></span>
+          <div>
+            <span>Média necessária</span>
+            <strong>{formatMoney(metrics.necessaryAverage)}<small>/dia</small></strong>
+            <small>{metrics.remainingDays} dias restantes</small>
+          </div>
+        </article>
+        <article className="surface-card compact-metric">
+          <span className="metric-icon icon-green"><BarChart3 size={19} /></span>
+          <div>
+            <span>Média últimos 7 dias</span>
+            <strong>{formatMoney(metrics.last7Average)}</strong>
+            <Trend value={metrics.weeklyEvolution} />
+          </div>
+        </article>
+      </section>
+
+      {/* Bonus Preview */}
+      <section className="bonus-preview surface-card">
+        <div className="bonus-copy">
+          <span className="metric-icon icon-amber"><CircleDollarSign size={20} /></span>
+          <div>
+            <span className="eyebrow">Minha bonificação</span>
+            <h2>{formatMoney(bonus.conquered)} conquistados</h2>
+            <p>Potencial total de {formatMoney(bonus.potential)}</p>
+          </div>
+        </div>
+        <ProgressRing value={(bonus.conquered / bonus.potential) * 100} size={68} tone="warning" />
+        <button className="secondary-button" onClick={() => onNavigate("profile")}>
+          Ver detalhamento <ChevronRight size={16} />
+        </button>
+      </section>
+
+      {/* AI Card */}
+      <section className="ai-card">
+        <div className="ai-glow" />
+        <div className="ai-label"><Sparkles size={17} /> Insight House IA</div>
+        <h2>{metrics.worstChannel.label} precisa de atenção</h2>
+        <p>
+          O canal está em {formatPercent(metrics.worstChannel.percentage)} da meta e é o principal desvio atual. A média necessária da unidade subiu para <strong>{formatMoney(metrics.necessaryAverage)}/dia</strong>.
+        </p>
+        <div className="ai-actions">
+          <button className="ai-primary" onClick={() => onNavigate("ai")}>
+            <Sparkles size={17} /> Ver análise completa
+          </button>
+          <button className="ai-secondary" onClick={() => onNavigate("ai")}>
+            Gerar plano de ação
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function FreelancersModal({
+  unit,
+  freelancers,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  unit: UnitConfig;
+  freelancers: FreelancerEntry[];
+  onSave: (entry: FreelancerEntry) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [date, setDate] = useState(isoDate(currentDate));
+  const [role, setRole] = useState("Chapeiro");
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState<number>(120);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const unitFreelancers = freelancers.filter((f) => f.unitId === unit.id);
+  const totalSpent = unitFreelancers.reduce((sum, f) => sum + f.amount, 0);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (amount <= 0) return;
+    setSaving(true);
+    try {
+      const entry: FreelancerEntry = {
+        id: `${unit.id}_${date}_${Date.now()}`,
+        unitId: unit.id,
+        date,
+        month: date.slice(0, 7),
+        role,
+        name: name.trim() || undefined,
+        amount,
+        notes: notes.trim() || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await onSave(entry);
+      setName("");
+      setNotes("");
+      setAmount(120);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="confirm-modal surface-card" style={{ maxWidth: 600 }}>
+        <button className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
+        <span className="modal-icon"><UsersRound size={24} /></span>
+        <h2>Controle de Freelancers & Diaristas</h2>
+        <p>Regra da House: Limite máximo de <b>R$ 1.500,00 no mês</b> para não bloquear o bônus do Salão.</p>
+
+        <div className="freelancer-cap-bar" style={{ margin: "14px 0" }}>
+          <div className="freelancer-cap-head">
+            <span>Total gasto: <b>{formatMoney(totalSpent)}</b></span>
+            <span>Teto: <b>R$ 1.500,00</b></span>
+          </div>
+          <div className="freelancer-cap-track">
+            <div
+              className="freelancer-cap-fill"
+              style={{
+                width: `${Math.min((totalSpent / 1500) * 100, 100)}%`,
+                background: totalSpent <= 1200 ? "var(--success)" : totalSpent <= 1500 ? "var(--warning)" : "var(--danger)",
+              }}
+            />
+          </div>
+          {totalSpent > 1500 && (
+            <small style={{ color: "var(--danger)", fontWeight: 700 }}>
+              ⚠️ Limite ultrapassado em {formatMoney(totalSpent - 1500)}. Bônus do canal Salão bloqueado.
+            </small>
+          )}
+        </div>
+
+        <form onSubmit={handleSave} className="freelancer-form">
+          <strong style={{ fontSize: 13 }}>Registrar nova diária</strong>
+          <div className="freelancer-inputs">
+            <label>
+              <span>Data</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </label>
+            <label>
+              <span>Função</span>
+              <select value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="Chapeiro">Chapeiro</option>
+                <option value="Atendente">Atendente / Garçom</option>
+                <option value="Motoboy">Motoboy</option>
+                <option value="Auxiliar de Cozinha">Auxiliar de Cozinha</option>
+                <option value="Caixa">Caixa</option>
+              </select>
+            </label>
+            <label>
+              <span>Nome (opcional)</span>
+              <input type="text" placeholder="Nome do diarista" value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <label>
+              <span>Valor (R$)</span>
+              <input type="number" min="0" step="10" value={amount || ""} onChange={(e) => setAmount(Number(e.target.value))} required />
+            </label>
+          </div>
+          <button className="primary-button" type="submit" disabled={saving || amount <= 0} style={{ width: "100%", justifyContent: "center" }}>
+            <PlusCircle size={16} /> {saving ? "Salvando..." : "Adicionar Diária"}
+          </button>
+        </form>
+
+        <div className="freelancer-list" style={{ maxHeight: 220, overflowY: "auto", marginTop: 12 }}>
+          <strong style={{ fontSize: 12 }}>Histórico de diárias deste mês ({unitFreelancers.length})</strong>
+          {unitFreelancers.length ? (
+            unitFreelancers.map((item) => (
+              <div className="freelancer-item" key={item.id}>
+                <div>
+                  <strong>{formatDateBR(item.date)} · {item.role} {item.name ? `(${item.name})` : ""}</strong>
+                  <small>{item.notes || "Sem observação"}</small>
+                </div>
+                <div className="freelancer-item-right">
+                  <strong>{formatMoney(item.amount)}</strong>
+                  <button className="freelancer-del-btn" onClick={() => void onDelete(item.id)} title="Excluir lançamento">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p style={{ fontSize: 11, color: "var(--text-secondary)" }}>Nenhuma diária lançada neste mês.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MoneyInput({ label, value, onChange, icon }: { label: string; value: number; onChange: (value: number) => void; icon: React.ReactNode }) {
-  return <label className="money-field"><span className="field-icon">{icon}</span><span className="field-copy"><b>{label}</b><small>Valor válido para a meta</small></span><span className="money-control"><i>R$</i><input inputMode="decimal" value={value ? formatMoneyInput(value) : ""} placeholder="0,00" onChange={(event) => onChange(parseMoney(event.target.value))} aria-label={`Valor de ${label}`} /></span></label>;
+  return (
+    <label className="money-field">
+      <span className="field-icon">{icon}</span>
+      <span className="field-copy">
+        <b>{label}</b>
+        <small>Valor válido para a meta</small>
+      </span>
+      <span className="money-control">
+        <i>R$</i>
+        <input
+          inputMode="decimal"
+          value={value ? formatMoneyInput(value) : ""}
+          placeholder="0,00"
+          onChange={(event) => onChange(parseMoney(event.target.value))}
+          aria-label={`Valor de ${label}`}
+        />
+      </span>
+    </label>
+  );
 }
 
-function DetailAccordion({ title, total, items, values, onChange }: { title: string; total: number; items: { key: string; label: string }[]; values: Record<string, number>; onChange: (key: string, value: number) => void }) {
+function DetailAccordion({
+  title,
+  total,
+  items,
+  values,
+  onChange,
+}: {
+  title: string;
+  total: number;
+  items: { key: string; label: string }[];
+  values: Record<string, number>;
+  onChange: (key: string, value: number) => void;
+}) {
   const [open, setOpen] = useState(false), validation = validateDetails(total, values);
-  return <div className={`detail-accordion ${open ? "is-open" : ""}`}><button className="accordion-trigger" onClick={() => setOpen(!open)} aria-expanded={open}><span><ChevronDown size={18} /> {title}</span><small className={total && !validation.matches ? "warning-text" : "muted-text"}>{total ? (validation.matches ? "Detalhamento confere" : `Diferença de ${formatMoney(Math.abs(validation.difference))}`) : "Opcional"}</small></button>{open && <div className="accordion-body">{items.map((item) => <label className="detail-field" key={item.key}><span>{item.label}</span><div><i>R$</i><input inputMode="decimal" value={values[item.key] ? formatMoneyInput(values[item.key]) : ""} placeholder="0,00" onChange={(event) => onChange(item.key, parseMoney(event.target.value))} /></div></label>)}{total > 0 && !validation.matches && <div className="validation-box"><span>!</span><p><strong>O detalhamento não corresponde ao total.</strong> Soma {formatMoney(validation.sum)}, mas o total informado é {formatMoney(total)}.</p></div>}</div>}</div>;
+  return (
+    <div className={`detail-accordion ${open ? "is-open" : ""}`}>
+      <button className="accordion-trigger" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span><ChevronDown size={18} /> {title}</span>
+        <small className={total && !validation.matches ? "warning-text" : "muted-text"}>
+          {total ? (validation.matches ? "Detalhamento confere" : `Diferença de ${formatMoney(Math.abs(validation.difference))}`) : "Opcional"}
+        </small>
+      </button>
+      {open && (
+        <div className="accordion-body">
+          {items.map((item) => (
+            <label className="detail-field" key={item.key}>
+              <span>{item.label}</span>
+              <div>
+                <i>R$</i>
+                <input
+                  inputMode="decimal"
+                  value={values[item.key] ? formatMoneyInput(values[item.key]) : ""}
+                  placeholder="0,00"
+                  onChange={(event) => onChange(item.key, parseMoney(event.target.value))}
+                />
+              </div>
+            </label>
+          ))}
+          {total > 0 && !validation.matches && (
+            <div className="validation-box">
+              <span>!</span>
+              <p><strong>O detalhamento não corresponde ao total.</strong> Soma {formatMoney(validation.sum)}, mas o total informado é {formatMoney(total)}.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function LaunchScreen({ unit, entries, onSave, onSync }: { unit: UnitConfig; entries: SalesEntry[]; onSave: (entry: SalesEntry) => Promise<void>; onSync: (unitId: string, date: string) => Promise<SalesEntry> }) {
-  const [date, setDate] = useState(isoDate(currentDate)); const existing = entries.find((entry) => entry.unitId === unit.id && entry.date === date);
-  const [salao, setSalao] = useState(existing?.salao || 0), [delivery, setDelivery] = useState(existing?.delivery || 0), [ifood, setIfood] = useState(existing?.ifood || 0);
-  const [deliveryDetails, setDeliveryDetails] = useState<Record<string, number>>(existing?.deliveryDetails || {}), [ifoodDetails, setIfoodDetails] = useState<Record<string, number>>(existing?.ifoodDetails || {}), [confirm, setConfirm] = useState(false), [saving, setSaving] = useState(false), [syncing, setSyncing] = useState(false), [syncError, setSyncError] = useState("");
-  const total = salao + delivery + ifood, [y, m, d] = date.split("-").map(Number), dailyTarget = unit.dailyTargets[new Date(y, m - 1, d).getDay()];
-  const changeDate = (nextDate: string) => { const found = entries.find((entry) => entry.unitId === unit.id && entry.date === nextDate); setDate(nextDate); setSalao(found?.salao || 0); setDelivery(found?.delivery || 0); setIfood(found?.ifood || 0); setDeliveryDetails(found?.deliveryDetails || {}); setIfoodDetails(found?.ifoodDetails || {}); };
-  const persist = async () => { setSaving(true); await onSave({ id: `${unit.id}_${date}`, unitId: unit.id, date, salao, delivery, ifood, deliveryDetails, ifoodDetails, createdBy: "gerente@house190.com.br", updatedAt: new Date().toISOString() }); setSaving(false); setConfirm(false); };
-  const syncTakeat = async () => { setSyncing(true); setSyncError(""); try { const entry = await onSync(unit.id, date); setSalao(entry.salao); setDelivery(entry.delivery); setIfood(entry.ifood); setDeliveryDetails(entry.deliveryDetails || {}); setIfoodDetails(entry.ifoodDetails || {}); } catch (error) { setSyncError(error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat."); } finally { setSyncing(false); } };
-  const submit = () => { const dv = validateDetails(delivery, deliveryDetails), iv = validateDetails(ifood, ifoodDetails), used = Object.values(deliveryDetails).some(Boolean) || Object.values(ifoodDetails).some(Boolean); if (used && (!dv.matches || !iv.matches)) setConfirm(true); else void persist(); };
-  return <div className="screen-stack narrow-screen"><div className="page-title"><div><span className="eyebrow">Lançamento diário</span><h1>Vendas do dia</h1><p>Os valores vêm automaticamente da Takeat e podem ser conferidos antes de salvar.</p></div><div className="date-picker"><CalendarDays size={17} /><input type="date" value={date} onChange={(event) => changeDate(event.target.value)} /></div></div>
-    <section className="takeat-sync surface-card"><div><span className="takeat-logo">T</span><div><strong>Integração Takeat</strong><small>{existing?.source === "takeat" ? `Sincronizado · ${existing.sourceSummary?.sessions || 0} vendas` : "Importar Salão, Delivery e iFood"}</small></div></div><button className="secondary-button" onClick={() => void syncTakeat()} disabled={syncing}>{syncing ? "Sincronizando..." : "Sincronizar agora"}</button>{syncError && <p className="sync-error">{syncError}</p>}</section>
-    <section className="surface-card launch-card"><div className="launch-date"><span>{formatDateBR(date)}</span><b>Meta do dia: {formatMoney(dailyTarget.total)}</b></div><div className="money-fields"><MoneyInput label="Salão" value={salao} onChange={setSalao} icon={<UtensilsCrossed size={21} />} /><MoneyInput label="Delivery próprio" value={delivery} onChange={setDelivery} icon={<Truck size={21} />} /><MoneyInput label="iFood" value={ifood} onChange={setIfood} icon={<ShoppingBag size={21} />} /></div><div className="launch-total"><div><span>Total do dia</span><strong>{formatMoney(total)}</strong></div><div><span>Meta diária</span><strong>{formatMoney(dailyTarget.total)}</strong></div><span className={`day-gap ${total >= dailyTarget.total ? "positive" : "negative"}`}>{total >= dailyTarget.total ? "+" : "−"}{formatMoney(Math.abs(total - dailyTarget.total))}</span></div><ProgressBar value={(total / dailyTarget.total) * 100} /></section>
-    <section className="detail-section"><div className="section-heading"><div><span className="eyebrow">Composição analítica</span><h2>Detalhamento opcional</h2></div></div><DetailAccordion title="Detalhar Delivery" total={delivery} items={unit.channels.delivery.details} values={deliveryDetails} onChange={(key, value) => setDeliveryDetails((current) => ({ ...current, [key]: value }))} /><DetailAccordion title="Detalhar iFood" total={ifood} items={unit.channels.ifood.details} values={ifoodDetails} onChange={(key, value) => setIfoodDetails((current) => ({ ...current, [key]: value }))} /></section>
-    <div className="form-note"><ShieldCheck size={18} /><p>Frete, brindes, cancelamentos, estornos e receitas de terceiros não devem entrar nos valores.</p></div><button className="primary-button save-button" onClick={submit} disabled={saving || total <= 0}><Save size={19} />{saving ? "Salvando..." : existing ? "Atualizar vendas" : "Salvar vendas"}</button>
-    {confirm && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="confirm-modal surface-card"><button className="modal-close" onClick={() => setConfirm(false)} aria-label="Fechar"><X size={20} /></button><span className="modal-icon">!</span><h2>Detalhamento diferente do total</h2><p>Uma subdivisão não fecha com o valor principal. O faturamento continuará considerando apenas os canais principais, sem duplicar valores.</p><div><button className="secondary-button" onClick={() => setConfirm(false)}>Corrigir valores</button><button className="danger-confirm" onClick={() => void persist()}>Confirmar mesmo assim</button></div></div></div>}
-  </div>;
+function LaunchScreen({
+  unit,
+  entries,
+  onSave,
+  onSync,
+}: {
+  unit: UnitConfig;
+  entries: SalesEntry[];
+  onSave: (entry: SalesEntry) => Promise<void>;
+  onSync: (unitId: string, date: string) => Promise<SalesEntry>;
+}) {
+  const [date, setDate] = useState(isoDate(currentDate));
+  const existing = entries.find((entry) => entry.unitId === unit.id && entry.date === date);
+  const [salao, setSalao] = useState(existing?.salao || 0);
+  const [delivery, setDelivery] = useState(existing?.delivery || 0);
+  const [ifood, setIfood] = useState(existing?.ifood || 0);
+  const [deliveryDetails, setDeliveryDetails] = useState<Record<string, number>>(existing?.deliveryDetails || {});
+  const [ifoodDetails, setIfoodDetails] = useState<Record<string, number>>(existing?.ifoodDetails || {});
+  const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
+
+  const total = salao + delivery + ifood;
+  const [y, m, d] = date.split("-").map(Number);
+  const dailyTarget = unit.dailyTargets[new Date(y, m - 1, d).getDay()];
+
+  const changeDate = (nextDate: string) => {
+    const found = entries.find((entry) => entry.unitId === unit.id && entry.date === nextDate);
+    setDate(nextDate);
+    setSalao(found?.salao || 0);
+    setDelivery(found?.delivery || 0);
+    setIfood(found?.ifood || 0);
+    setDeliveryDetails(found?.deliveryDetails || {});
+    setIfoodDetails(found?.ifoodDetails || {});
+  };
+
+  const persist = async () => {
+    setSaving(true);
+    await onSave({
+      id: `${unit.id}_${date}`,
+      unitId: unit.id,
+      date,
+      salao,
+      delivery,
+      ifood,
+      deliveryDetails,
+      ifoodDetails,
+      createdBy: "gerente@house190.com.br",
+      updatedAt: new Date().toISOString(),
+    });
+    setSaving(false);
+    setConfirm(false);
+  };
+
+  const syncTakeat = async () => {
+    setSyncing(true);
+    setSyncError("");
+    try {
+      const entry = await onSync(unit.id, date);
+      setSalao(entry.salao);
+      setDelivery(entry.delivery);
+      setIfood(entry.ifood);
+      setDeliveryDetails(entry.deliveryDetails || {});
+      setIfoodDetails(entry.ifoodDetails || {});
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Não foi possível sincronizar a Takeat.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const submit = () => {
+    const dv = validateDetails(delivery, deliveryDetails), iv = validateDetails(ifood, ifoodDetails), used = Object.values(deliveryDetails).some(Boolean) || Object.values(ifoodDetails).some(Boolean);
+    if (used && (!dv.matches || !iv.matches)) setConfirm(true);
+    else void persist();
+  };
+
+  return (
+    <div className="screen-stack narrow-screen">
+      <div className="page-title">
+        <div>
+          <span className="eyebrow">Lançamento diário</span>
+          <h1>Vendas do dia</h1>
+          <p>Os valores vêm automaticamente da Takeat e podem ser conferidos antes de salvar.</p>
+        </div>
+        <div className="date-picker">
+          <CalendarDays size={17} />
+          <input type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
+        </div>
+      </div>
+      <section className="takeat-sync surface-card">
+        <div>
+          <span className="takeat-logo">T</span>
+          <div>
+            <strong>Integração Takeat</strong>
+            <small>{existing?.source === "takeat" ? `Sincronizado · ${existing.sourceSummary?.sessions || 0} vendas` : "Importar Salão, Delivery e iFood"}</small>
+          </div>
+        </div>
+        <button className="secondary-button" onClick={() => void syncTakeat()} disabled={syncing}>
+          {syncing ? "Sincronizando..." : "Sincronizar agora"}
+        </button>
+        {syncError && <p className="sync-error">{syncError}</p>}
+      </section>
+      <section className="surface-card launch-card">
+        <div className="launch-date">
+          <span>{formatDateBR(date)}</span>
+          <b>Meta do dia: {formatMoney(dailyTarget.total)}</b>
+        </div>
+        <div className="money-fields">
+          <MoneyInput label="Salão" value={salao} onChange={setSalao} icon={<UtensilsCrossed size={21} />} />
+          <MoneyInput label="Delivery próprio" value={delivery} onChange={setDelivery} icon={<Truck size={21} />} />
+          <MoneyInput label="iFood" value={ifood} onChange={setIfood} icon={<ShoppingBag size={21} />} />
+        </div>
+        <div className="launch-total">
+          <div>
+            <span>Total do dia</span>
+            <strong>{formatMoney(total)}</strong>
+          </div>
+          <div>
+            <span>Meta diária</span>
+            <strong>{formatMoney(dailyTarget.total)}</strong>
+          </div>
+          <span className={`day-gap ${total >= dailyTarget.total ? "positive" : "negative"}`}>
+            {total >= dailyTarget.total ? "+" : "−"}{formatMoney(Math.abs(total - dailyTarget.total))}
+          </span>
+        </div>
+        <ProgressBar value={(total / dailyTarget.total) * 100} />
+      </section>
+      <section className="detail-section">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Composição analítica</span>
+            <h2>Detalhamento opcional</h2>
+          </div>
+        </div>
+        <DetailAccordion
+          title="Detalhar Delivery"
+          total={delivery}
+          items={unit.channels.delivery.details}
+          values={deliveryDetails}
+          onChange={(key, value) => setDeliveryDetails((current) => ({ ...current, [key]: value }))}
+        />
+        <DetailAccordion
+          title="Detalhar iFood"
+          total={ifood}
+          items={unit.channels.ifood.details}
+          values={ifoodDetails}
+          onChange={(key, value) => setIfoodDetails((current) => ({ ...current, [key]: value }))}
+        />
+      </section>
+      <div className="form-note">
+        <ShieldCheck size={18} />
+        <p>Frete, brindes, cancelamentos, estornos e receitas de terceiros não devem entrar nos valores.</p>
+      </div>
+      <button className="primary-button save-button" onClick={submit} disabled={saving || total <= 0}>
+        <Save size={19} />
+        {saving ? "Salvando..." : existing ? "Atualizar vendas" : "Salvar vendas"}
+      </button>
+      {confirm && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="confirm-modal surface-card">
+            <button className="modal-close" onClick={() => setConfirm(false)} aria-label="Fechar"><X size={20} /></button>
+            <span className="modal-icon">!</span>
+            <h2>Detalhamento diferente do total</h2>
+            <p>Uma subdivisão não fecha com o valor principal. O faturamento continuará considerando apenas os canais principais, sem duplicar valores.</p>
+            <div>
+              <button className="secondary-button" onClick={() => setConfirm(false)}>Corrigir valores</button>
+              <button className="danger-confirm" onClick={() => void persist()}>Confirmar mesmo assim</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function HistoryScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntry[] }) {
   const [period, setPeriod] = useState("month"), unitEntries = entries.filter((entry) => entry.unitId === unit.id).slice().reverse(), visible = period === "today" ? unitEntries.slice(0, 1) : period === "7" ? unitEntries.slice(0, 7) : unitEntries, total = visible.reduce((sum, entry) => sum + entryTotal(entry), 0);
-  return <div className="screen-stack"><div className="page-title"><div><span className="eyebrow">Histórico</span><h1>Evolução das vendas</h1><p>Entenda dias fortes, quedas e recuperação.</p></div></div><div className="segmented-control" role="tablist">{[["today","Hoje"],["7","7 dias"],["month","Mês"]].map(([key,label]) => <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{label}</button>)}</div>
-    <section className="history-summary surface-card"><div><span>Faturamento no período</span><strong>{formatMoney(total)}</strong></div><div><span>Média por dia</span><strong>{formatMoney(total / Math.max(visible.length, 1))}</strong></div><div><span>Melhor dia</span><strong>{visible.length ? formatMoney(Math.max(...visible.map(entryTotal))) : formatMoney(0)}</strong></div></section>
-    <section className="surface-card history-list"><div className="section-heading"><div><span className="eyebrow">Lançamentos</span><h2>{visible.length} dias registrados</h2></div></div>{visible.map((entry) => { const [year, month, day] = entry.date.split("-").map(Number), target = unit.dailyTargets[new Date(year, month - 1, day).getDay()].total, result = entryTotal(entry), monthNames = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]; return <article className="history-row" key={entry.id}><div className="history-date"><strong>{day}</strong><span>{monthNames[month - 1]}</span></div><div className="history-main"><div><strong>{formatMoney(result)}</strong><span>Meta {formatMoney(target)}</span></div><ProgressBar value={(result / target) * 100} /><small>Salão {formatMoney(entry.salao)} · Delivery {formatMoney(entry.delivery)} · iFood {formatMoney(entry.ifood)}</small></div><span className={`status-dot ${result >= target ? "green" : result >= target * .93 ? "yellow" : "red"}`} /></article>; })}</section>
-  </div>;
+  return (
+    <div className="screen-stack">
+      <div className="page-title">
+        <div>
+          <span className="eyebrow">Histórico</span>
+          <h1>Evolução das vendas</h1>
+          <p>Entenda dias fortes, quedas e recuperação.</p>
+        </div>
+      </div>
+      <div className="segmented-control" role="tablist">
+        {[["today","Hoje"],["7","7 dias"],["month","Mês"]].map(([key,label]) => (
+          <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <section className="history-summary surface-card">
+        <div>
+          <span>Faturamento no período</span>
+          <strong>{formatMoney(total)}</strong>
+        </div>
+        <div>
+          <span>Média por dia</span>
+          <strong>{formatMoney(total / Math.max(visible.length, 1))}</strong>
+        </div>
+        <div>
+          <span>Melhor dia</span>
+          <strong>{visible.length ? formatMoney(Math.max(...visible.map(entryTotal))) : formatMoney(0)}</strong>
+        </div>
+      </section>
+      <section className="surface-card history-list">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Lançamentos</span>
+            <h2>{visible.length} dias registrados</h2>
+          </div>
+        </div>
+        {visible.map((entry) => {
+          const [year, month, day] = entry.date.split("-").map(Number);
+          const target = unit.dailyTargets[new Date(year, month - 1, day).getDay()].total;
+          const result = entryTotal(entry);
+          const monthNames = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+          return (
+            <article className="history-row" key={entry.id}>
+              <div className="history-date">
+                <strong>{day}</strong>
+                <span>{monthNames[month - 1]}</span>
+              </div>
+              <div className="history-main">
+                <div>
+                  <strong>{formatMoney(result)}</strong>
+                  <span>Meta {formatMoney(target)}</span>
+                </div>
+                <ProgressBar value={(result / target) * 100} />
+                <small>Salão {formatMoney(entry.salao)} · Delivery {formatMoney(entry.delivery)} · iFood {formatMoney(entry.ifood)}</small>
+              </div>
+              <span className={`status-dot ${result >= target ? "green" : result >= target * 0.93 ? "yellow" : "red"}`} />
+            </article>
+          );
+        })}
+      </section>
+    </div>
+  );
 }
 
+type AIResult = { diagnostic: string; alert: string; numbers: string[]; actions: string[]; tomorrow: string; demo?: boolean };
 function AIScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntry[] }) {
   const metrics = calculatePerformance(unit, entries, currentDate);
   const [result, setResult] = useState<AIResult | null>(null);
@@ -271,187 +1211,542 @@ function AIScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntry[] }
     }
   };
 
-  return <div className="screen-stack ai-screen"><div className="page-title"><div><span className="eyebrow">House IA</span><h1>Consultor de performance</h1><p>Análises baseadas nos números reais e calculados pelo sistema.</p></div></div><section className="ai-command-card"><div className="ai-orb"><Bot size={30} /></div><div><span className="ai-label"><Sparkles size={15} /> Analista de gestão</span><h2>Qual decisão você precisa tomar?</h2><p>A IA interpreta trajetória, canais, tendência, projeção e regras do programa.</p></div></section><div className="ai-prompt-grid">{["Analisar minha performance", "Como recuperar minha meta?", "Gerar plano de ação", "Analisar últimos 7 dias", "O que está prejudicando minha meta?", "Como alcançar a supermeta?"].map((item) => <button key={item} onClick={() => void analyze(item)}><Lightbulb size={17} /><span>{item}</span><ChevronRight size={16} /></button>)}</div>
-    {(loading || result) && <section className="analysis-result surface-card"><div className="analysis-header"><div><span className="eyebrow">Análise solicitada</span><h2>{prompt}</h2></div>{result?.demo && <span className="demo-badge">Modo demonstração</span>}</div>{loading ? <div className="analysis-skeleton">{[1,2,3,4].map((item) => <div key={item}><i /><i /><i /></div>)}</div> : result && <div className="analysis-sections"><article><span className="analysis-number">01</span><div><h3>Diagnóstico</h3><p>{result.diagnostic}</p></div></article><article className="alert-section"><span className="analysis-number">02</span><div><h3>Principal alerta</h3><p>{result.alert}</p></div></article><article className="analysis-number-section"><span className="analysis-number">03</span><div><h3>Números importantes</h3><ul>{result.numbers?.map((number) => <li key={number}>{number}</li>)}</ul></div></article><article className="analysis-action-section"><span className="analysis-number">04</span><div><h3>Plano de ação</h3><ol>{result.actions?.map((action, index) => <li key={action}><b>{index + 1}</b>{action}</li>)}</ol></div></article><article className="focus-section"><span className="analysis-number"><Target size={18} /></span><div><h3>Foco prioritário</h3><p>{result.tomorrow}</p></div></article></div>}</section>}
-  </div>;
+  return (
+    <div className="screen-stack ai-screen">
+      <div className="page-title">
+        <div>
+          <span className="eyebrow">House IA</span>
+          <h1>Consultor de performance</h1>
+          <p>Análises baseadas nos números reais e calculados pelo sistema.</p>
+        </div>
+      </div>
+      <section className="ai-command-card">
+        <div className="ai-orb"><Bot size={30} /></div>
+        <div>
+          <span className="ai-label"><Sparkles size={15} /> Analista de gestão</span>
+          <h2>Qual decisão você precisa tomar?</h2>
+          <p>A IA interpreta trajetória, canais, tendência, projeção e regras do programa.</p>
+        </div>
+      </section>
+      <div className="ai-prompt-grid">
+        {["Analisar minha performance", "Como recuperar minha meta?", "Gerar plano de ação", "Analisar últimos 7 dias", "O que está prejudicando minha meta?", "Como alcançar a supermeta?"].map((item) => (
+          <button key={item} onClick={() => void analyze(item)}>
+            <Lightbulb size={17} />
+            <span>{item}</span>
+            <ChevronRight size={16} />
+          </button>
+        ))}
+      </div>
+      {(loading || result) && (
+        <section className="analysis-result surface-card">
+          <div className="analysis-header">
+            <div>
+              <span className="eyebrow">Análise solicitada</span>
+              <h2>{prompt}</h2>
+            </div>
+            {result?.demo && <span className="demo-badge">Modo demonstração</span>}
+          </div>
+          {loading ? (
+            <div className="analysis-skeleton">{[1,2,3,4].map((item) => <div key={item}><i /><i /><i /></div>)}</div>
+          ) : result && (
+            <div className="analysis-sections">
+              <article>
+                <span className="analysis-number">01</span>
+                <div>
+                  <h3>Diagnóstico</h3>
+                  <p>{result.diagnostic}</p>
+                </div>
+              </article>
+              <article className="alert-section">
+                <span className="analysis-number">02</span>
+                <div>
+                  <h3>Principal alerta</h3>
+                  <p>{result.alert}</p>
+                </div>
+              </article>
+              <article className="analysis-number-section">
+                <span className="analysis-number">03</span>
+                <div>
+                  <h3>Números importantes</h3>
+                  <ul>{result.numbers?.map((number) => <li key={number}>{number}</li>)}</ul>
+                </div>
+              </article>
+              <article className="analysis-action-section">
+                <span className="analysis-number">04</span>
+                <div>
+                  <h3>Plano de ação</h3>
+                  <ol>{result.actions?.map((action, index) => <li key={action}><b>{index + 1}</b>{action}</li>)}</ol>
+                </div>
+              </article>
+              <article className="focus-section">
+                <span className="analysis-number"><Target size={18} /></span>
+                <div>
+                  <h3>Foco prioritário</h3>
+                  <p>{result.tomorrow}</p>
+                </div>
+              </article>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
 }
 
-function ProfileScreen({ unit, entries, role, profile, onLogout }: { unit: UnitConfig; entries: SalesEntry[]; role: UserRole; profile: { name: string; email: string }; onLogout: () => void }) {
-  const [operating, setOperating] = useState<OperatingInputs>({ cmvPercent: 32.8, freelancerSpend: 1180 }), bonus = calculateBonus(unit, entries.filter((entry) => entry.unitId === unit.id), operating);
-  return <div className="screen-stack"><div className="page-title"><div><span className="eyebrow">Performance e perfil</span><h1>Minha bonificação</h1><p>Regras aplicadas automaticamente à apuração.</p></div></div><section className="bonus-hero surface-card"><div><span className="eyebrow">Bônus conquistado</span><strong>{formatMoney(bonus.conquered)}</strong><p>de {formatMoney(bonus.potential)} possíveis</p></div><ProgressRing value={(bonus.conquered / bonus.potential) * 100} size={104} tone="warning" /></section>{(bonus.cmvBlocked || bonus.minimumBlocked) && <div className="blocking-alert"><ShieldCheck size={20} /><div><strong>Bonificação bloqueada</strong><p>{bonus.cmvBlocked ? "O CMV está acima do limite de 35%." : "É necessário atingir pelo menos duas categorias."}</p></div></div>}
-    <section className="bonus-list surface-card"><div className="section-heading"><div><span className="eyebrow">Categorias</span><h2>Progresso da apuração</h2></div></div>{bonus.categories.map((category) => <article key={category.label}><div className="bonus-status"><span className={category.unlocked ? "done" : category.percentage >= 80 ? "near" : "far"}>{category.unlocked ? "✓" : Math.round(category.percentage) + "%"}</span><div><strong>{category.label}</strong><small>{formatMoney(category.realized)} de {formatMoney(category.goal)}</small></div></div><div className="bonus-amount"><span>{category.unlocked ? "Conquistado" : "Potencial"}</span><strong>{formatMoney(category.bonus)}</strong></div></article>)}</section>
-    <section className="surface-card operating-card"><div className="section-heading"><div><span className="eyebrow">Critérios operacionais</span><h2>CMV e freelancers</h2></div></div><div className="operating-inputs"><label><span>CMV do mês</span><div><input type="number" step="0.1" value={operating.cmvPercent} onChange={(event) => setOperating({ ...operating, cmvPercent: Number(event.target.value) })} /><i>%</i></div><small>Máximo permitido: 35%</small></label><label><span>Freelancers</span><div><i>R$</i><input type="number" value={operating.freelancerSpend} onChange={(event) => setOperating({ ...operating, freelancerSpend: Number(event.target.value) })} /></div><small>Limite: R$ 1.500</small></label></div></section>
-    <section className="surface-card profile-card"><div className="avatar-large">{profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div><div><strong>{profile.name || "Usuário House"}</strong><span>{profile.email}</span><small>{role === "admin" ? "Acesso a todas as unidades" : unit.name}</small></div><span className="profile-role">{role === "admin" ? "Administrador" : "Gerente"}</span><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Sair da conta</button></section>
-  </div>;
+function ProfileScreen({
+  unit,
+  entries,
+  cmvRecords,
+  freelancers,
+  role,
+  profile,
+  onLogout,
+  onOpenFreelancers,
+}: {
+  unit: UnitConfig;
+  entries: SalesEntry[];
+  cmvRecords: CmvEntry[];
+  freelancers: FreelancerEntry[];
+  role: UserRole;
+  profile: { name: string; email: string };
+  onLogout: () => void;
+  onOpenFreelancers: () => void;
+}) {
+  const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
+  const liveRevenue = (record: CmvEntry) => {
+    const hasLoadedPeriod = entries.some((sale) => sale.unitId === record.unitId && sale.date >= record.weekStart && sale.date <= record.weekEnd);
+    return hasLoadedPeriod ? revenueForPeriod(entries, record.unitId, record.weekStart, record.weekEnd) : record.revenue;
+  };
+  const liveCmvRecords = cmvRecords.map((r) => ({ ...r, revenue: liveRevenue(r) }));
+  const monthCmvMetrics = monthlyCmv(liveCmvRecords, unit, currentMonthPrefix);
+
+  const freelancerSpend = freelancers.filter((f) => f.unitId === unit.id).reduce((sum, f) => sum + f.amount, 0);
+  const [operating, setOperating] = useState<OperatingInputs>({
+    cmvPercent: monthCmvMetrics.weeks > 0 ? monthCmvMetrics.percentage : 32.8,
+    freelancerSpend,
+  });
+
+  useEffect(() => {
+    setOperating({
+      cmvPercent: monthCmvMetrics.weeks > 0 ? monthCmvMetrics.percentage : 32.8,
+      freelancerSpend,
+    });
+  }, [monthCmvMetrics.percentage, freelancerSpend, monthCmvMetrics.weeks]);
+
+  const bonus = calculateBonus(unit, entries.filter((entry) => entry.unitId === unit.id), operating);
+
+  return (
+    <div className="screen-stack">
+      <div className="page-title">
+        <div>
+          <span className="eyebrow">Performance e perfil</span>
+          <h1>Minha bonificação</h1>
+          <p>Regras aplicadas automaticamente à apuração.</p>
+        </div>
+      </div>
+      <section className="bonus-hero surface-card">
+        <div>
+          <span className="eyebrow">Bônus conquistado</span>
+          <strong>{formatMoney(bonus.conquered)}</strong>
+          <p>de {formatMoney(bonus.potential)} possíveis</p>
+        </div>
+        <ProgressRing value={(bonus.conquered / bonus.potential) * 100} size={104} tone="warning" />
+      </section>
+      {(bonus.cmvBlocked || bonus.minimumBlocked) && (
+        <div className="blocking-alert">
+          <ShieldCheck size={20} />
+          <div>
+            <strong>Bonificação bloqueada</strong>
+            <p>{bonus.cmvBlocked ? "O CMV está acima do limite de 35%." : "É necessário atingir pelo menos duas categorias."}</p>
+          </div>
+        </div>
+      )}
+      <section className="bonus-list surface-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Categorias</span>
+            <h2>Progresso da apuração</h2>
+          </div>
+        </div>
+        {bonus.categories.map((category) => (
+          <article key={category.label}>
+            <div className="bonus-status">
+              <span className={category.unlocked ? "done" : category.percentage >= 80 ? "near" : "far"}>
+                {category.unlocked ? "✓" : Math.round(category.percentage) + "%"}
+              </span>
+              <div>
+                <strong>{category.label}</strong>
+                <small>{formatMoney(category.realized)} de {formatMoney(category.goal)}</small>
+              </div>
+            </div>
+            <div className="bonus-amount">
+              <span>{category.unlocked ? "Conquistado" : "Potencial"}</span>
+              <strong>{formatMoney(category.bonus)}</strong>
+            </div>
+          </article>
+        ))}
+      </section>
+      <section className="surface-card operating-card">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Critérios operacionais</span>
+            <h2>CMV e freelancers</h2>
+          </div>
+          <button className="secondary-button" onClick={onOpenFreelancers}>
+            <UsersRound size={15} /> Gerenciar Diaristas
+          </button>
+        </div>
+        <div className="operating-inputs">
+          <label>
+            <span>CMV do mês</span>
+            <div>
+              <input type="number" step="0.1" value={operating.cmvPercent} onChange={(event) => setOperating({ ...operating, cmvPercent: Number(event.target.value) })} />
+              <i>%</i>
+            </div>
+            <small>Máximo permitido: 35%</small>
+          </label>
+          <label>
+            <span>Freelancers</span>
+            <div>
+              <i>R$</i>
+              <input type="number" value={operating.freelancerSpend} onChange={(event) => setOperating({ ...operating, freelancerSpend: Number(event.target.value) })} />
+            </div>
+            <small>Limite: R$ 1.500</small>
+          </label>
+        </div>
+      </section>
+      <section className="surface-card profile-card">
+        <div className="avatar-large">
+          {profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+        </div>
+        <div>
+          <strong>{profile.name || "Usuário House"}</strong>
+          <span>{profile.email}</span>
+          <small>{role === "admin" ? "Acesso a todas as unidades" : unit.name}</small>
+        </div>
+        <span className="profile-role">{role === "admin" ? "Administrador" : "Gerente"}</span>
+        <button className="logout-button" onClick={onLogout}>
+          <LogOut size={17} /> Sair da conta
+        </button>
+      </section>
+    </div>
+  );
 }
 
-function AdminScreen({ entries, units, onUnit, onSaveGoals }: { entries: SalesEntry[]; units: UnitConfig[]; onUnit: (unit: UnitConfig) => void; onSaveGoals: (unit: UnitConfig) => Promise<void> }) {
+function AdminScreen({
+  entries,
+  units,
+  onUnit,
+  onSaveGoals,
+}: {
+  entries: SalesEntry[];
+  units: UnitConfig[];
+  onUnit: (unit: UnitConfig) => void;
+  onSaveGoals: (unit: UnitConfig) => Promise<void>;
+}) {
   const cards = units.map((unit) => ({ unit, metrics: calculatePerformance(unit, entries, currentDate) })).sort((a, b) => b.metrics.trajectoryPercentage - a.metrics.trajectoryPercentage);
-  return <div className="screen-stack"><div className="page-title"><div><span className="eyebrow">Painel administrativo</span><h1>Visão geral das unidades</h1><p>Compare performance, risco e distância da trajetória.</p></div><button className="secondary-button"><UsersRound size={17} /> Gerenciar equipe</button></div><section className="admin-overview"><article className="surface-card"><span>Faturamento consolidado</span><strong>{formatMoney(cards.reduce((sum, card) => sum + card.metrics.total, 0))}</strong><Trend value={2.8} /></article><article className="surface-card"><span>Unidades no ritmo</span><strong>{cards.filter((card) => card.metrics.health === "green").length} de 3</strong><small>Atualizado em 14 de agosto</small></article><article className="surface-card"><span>Bonificação potencial</span><strong>{formatMoney(9000)}</strong><small>Máximo das três unidades</small></article></section>
-    <section className="unit-admin-grid">{cards.map(({ unit, metrics }, index) => <button className="unit-admin-card surface-card" key={unit.id} onClick={() => onUnit(unit)}><div className="unit-rank">#{index + 1}</div><div className="unit-card-head"><span className="unit-logo"><Building2 size={21} /></span><div><strong>{unit.name}</strong><span className={`status-badge status-${metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger"}`}>{metrics.healthLabel}</span></div></div><div className="unit-main-metric"><span>Realizado</span><strong>{formatMoney(metrics.total)}</strong></div><ProgressBar value={metrics.percentage} expected={(metrics.expected / unit.monthlyGoal) * 100} /><div className="unit-stats"><div><span>Trajetória</span><strong>{formatPercent(metrics.trajectoryPercentage)}</strong></div><div><span>Gap</span><strong className={metrics.gap >= 0 ? "positive" : "negative"}>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong></div><div><span>Projeção</span><strong>{formatMoney(metrics.projection)}</strong></div></div><span className="unit-open">Abrir unidade <ChevronRight size={16} /></span></button>)}</section><AdminGoalEditor units={units} onSave={onSaveGoals} />
-  </div>;
+  return (
+    <div className="screen-stack">
+      <div className="page-title">
+        <div>
+          <span className="eyebrow">Painel administrativo</span>
+          <h1>Visão geral das unidades</h1>
+          <p>Compare performance, risco e distância da trajetória.</p>
+        </div>
+        <button className="secondary-button"><UsersRound size={17} /> Gerenciar equipe</button>
+      </div>
+      <section className="admin-overview">
+        <article className="surface-card">
+          <span>Faturamento consolidado</span>
+          <strong>{formatMoney(cards.reduce((sum, card) => sum + card.metrics.total, 0))}</strong>
+          <Trend value={2.8} />
+        </article>
+        <article className="surface-card">
+          <span>Unidades no ritmo</span>
+          <strong>{cards.filter((card) => card.metrics.health === "green").length} de 3</strong>
+          <small>Atualizado hoje</small>
+        </article>
+        <article className="surface-card">
+          <span>Bonificação potencial</span>
+          <strong>{formatMoney(9000)}</strong>
+          <small>Máximo das três unidades</small>
+        </article>
+      </section>
+      <section className="unit-admin-grid">
+        {cards.map(({ unit, metrics }, index) => (
+          <button className="unit-admin-card surface-card" key={unit.id} onClick={() => onUnit(unit)}>
+            <div className="unit-rank">#{index + 1}</div>
+            <div className="unit-card-head">
+              <span className="unit-logo"><Building2 size={21} /></span>
+              <div>
+                <strong>{unit.name}</strong>
+                <span className={`status-badge status-${metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger"}`}>
+                  {metrics.healthLabel}
+                </span>
+              </div>
+            </div>
+            <div className="unit-main-metric">
+              <span>Realizado</span>
+              <strong>{formatMoney(metrics.total)}</strong>
+            </div>
+            <ProgressBar value={metrics.percentage} expected={(metrics.expected / unit.monthlyGoal) * 100} />
+            <div className="unit-stats">
+              <div>
+                <span>Trajetória</span>
+                <strong>{formatPercent(metrics.trajectoryPercentage)}</strong>
+              </div>
+              <div>
+                <span>Gap</span>
+                <strong className={metrics.gap >= 0 ? "positive" : "negative"}>
+                  {metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}
+                </strong>
+              </div>
+              <div>
+                <span>Projeção</span>
+                <strong>{formatMoney(metrics.projection)}</strong>
+              </div>
+            </div>
+            <span className="unit-open">Abrir unidade <ChevronRight size={16} /></span>
+          </button>
+        ))}
+      </section>
+      <AdminGoalEditor units={units} onSave={onSaveGoals} />
+    </div>
+  );
 }
 
-function AppNavigation({ view, setView, role, profile, onLogout }: { view: View; setView: (view: View) => void; role: UserRole; profile: { name: string; email: string }; onLogout: () => void }) {
-  const items: { key: View; label: string; icon: React.ReactNode }[] = [{ key: "dashboard", label: "Início", icon: <Home size={20} /> }, { key: "history", label: "Histórico", icon: <History size={20} /> }, { key: "cmv", label: "CMV", icon: <CircleDollarSign size={20} /> }, { key: "ai", label: "House IA", icon: <Sparkles size={20} /> }, { key: "profile", label: "Perfil", icon: <UserRound size={20} /> }];
-  return <><aside className="sidebar"><div className="brand"><span className="brand-mark"><BarChart3 size={23} /></span><div><strong>HOUSE GESTÃO</strong><small>Central de Metas</small></div></div><nav>{role === "admin" && <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}><Building2 size={20} /><span>Visão geral</span></button>}{items.map((item) => <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>{item.icon}<span>{item.label === "Início" ? "Dashboard" : item.label}</span></button>)}</nav><div className="sidebar-bottom"><button><Settings size={19} /> Configurações</button><div className="sidebar-user"><div className="avatar">{profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div><div><strong>{profile.name || "Usuário House"}</strong><span>{role === "admin" ? "Administrador" : "Gerente"}</span></div><button className="logout-icon" onClick={onLogout} aria-label="Sair da conta"><LogOut size={17} /></button></div></div></aside><nav className="bottom-nav">{items.map((item) => <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>{item.icon}<span>{item.label}</span></button>)}</nav></>;
+function AppNavigation({
+  view,
+  setView,
+  role,
+  profile,
+  onLogout,
+}: {
+  view: View;
+  setView: (view: View) => void;
+  role: UserRole;
+  profile: { name: string; email: string };
+  onLogout: () => void;
+}) {
+  const items: { key: View; label: string; icon: React.ReactNode }[] = [
+    { key: "dashboard", label: "Início", icon: <Home size={20} /> },
+    { key: "history", label: "Histórico", icon: <History size={20} /> },
+    { key: "cmv", label: "CMV", icon: <CircleDollarSign size={20} /> },
+    { key: "ai", label: "House IA", icon: <Sparkles size={20} /> },
+    { key: "profile", label: "Perfil", icon: <UserRound size={20} /> },
+  ];
+  return (
+    <>
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark"><BarChart3 size={23} /></span>
+          <div>
+            <strong>HOUSE GESTÃO</strong>
+            <small>Central de Metas</small>
+          </div>
+        </div>
+        <nav>
+          {role === "admin" && (
+            <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>
+              <Building2 size={20} />
+              <span>Visão geral</span>
+            </button>
+          )}
+          {items.map((item) => (
+            <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>
+              {item.icon}
+              <span>{item.label === "Início" ? "Dashboard" : item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <button><Settings size={19} /> Configurações</button>
+          <div className="sidebar-user">
+            <div className="avatar">
+              {profile.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <strong>{profile.name || "Usuário House"}</strong>
+              <span>{role === "admin" ? "Administrador" : "Gerente"}</span>
+            </div>
+            <button className="logout-icon" onClick={onLogout} aria-label="Sair da conta"><LogOut size={17} /></button>
+          </div>
+        </div>
+      </aside>
+      <nav className="bottom-nav">
+        {items.map((item) => (
+          <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+    </>
+  );
 }
 
 function LoginScreen({ onLogin, error, loading }: { onLogin: (email: string, password: string) => Promise<void>; error: string; loading: boolean }) {
   const [email, setEmail] = useState(""), [password, setPassword] = useState("");
-  return <main className="login-screen"><section className="login-panel"><div className="login-brand"><span className="brand-mark"><BarChart3 size={26} /></span><div><strong>HOUSE GESTÃO</strong><small>Central de Metas e Performance</small></div></div><div className="login-copy"><span className="eyebrow">Acesso seguro</span><h1>Bem-vindo de volta</h1><p>Entre para acompanhar a performance da sua unidade.</p></div><form onSubmit={(event) => { event.preventDefault(); void onLogin(email, password); }}><label><span>E-mail</span><input type="email" required autoComplete="email" placeholder="seuemail@house190.com.br" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label><span>Senha</span><input type="password" required autoComplete="current-password" placeholder="Sua senha" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <div className="login-error">{error}</div>}<button className="primary-button" disabled={loading}>{loading ? "Entrando..." : "Entrar no HOUSE GESTÃO"}</button></form><div className="login-safe"><ShieldCheck size={16} /><span>Seus dados são protegidos pelo Firebase Authentication.</span></div></section><aside className="login-visual"><div className="login-glow" /><span className="ai-label"><Sparkles size={15} /> Gestão que antecipa decisões</span><h2>Transforme números diários em crescimento.</h2><p>Trajetória, canais, projeção, bonificação e plano de ação em um único lugar.</p><div className="login-mock"><div><span>Meta no ritmo</span><strong>106,7%</strong></div><ProgressBar value={68} expected={63} /><small>Resultado acima da trajetória esperada</small></div></aside></main>;
+  return (
+    <main className="login-screen">
+      <section className="login-panel">
+        <div className="login-brand">
+          <span className="brand-mark"><BarChart3 size={26} /></span>
+          <div>
+            <strong>HOUSE GESTÃO</strong>
+            <small>Central de Metas e Performance</small>
+          </div>
+        </div>
+        <div className="login-copy">
+          <span className="eyebrow">Acesso seguro</span>
+          <h1>Bem-vindo de volta</h1>
+          <p>Entre para acompanhar a performance da sua unidade.</p>
+        </div>
+        <form onSubmit={(event) => { event.preventDefault(); void onLogin(email, password); }}>
+          <label>
+            <span>E-mail</span>
+            <input type="email" required autoComplete="email" placeholder="seuemail@house190.com.br" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </label>
+          <label>
+            <span>Senha</span>
+            <input type="password" required autoComplete="current-password" placeholder="Sua senha" value={password} onChange={(event) => setPassword(event.target.value)} />
+          </label>
+          {error && <div className="login-error">{error}</div>}
+          <button className="primary-button" disabled={loading}>{loading ? "Entrando..." : "Entrar no HOUSE GESTÃO"}</button>
+        </form>
+        <div className="login-safe">
+          <ShieldCheck size={16} />
+          <span>Seus dados são protegidos pelo Firebase Authentication.</span>
+        </div>
+      </section>
+      <aside className="login-visual">
+        <div className="login-glow" />
+        <span className="ai-label"><Sparkles size={15} /> Gestão que antecipa decisões</span>
+        <h2>Transforme números diários em crescimento.</h2>
+        <p>Trajetória, canais, projeção, bonificação e plano de ação em um único lugar.</p>
+        <div className="login-mock">
+          <div>
+            <span>Meta no ritmo</span>
+            <strong>106,7%</strong>
+          </div>
+          <ProgressBar value={68} expected={63} />
+          <small>Resultado acima da trajetória esperada</small>
+        </div>
+      </aside>
+    </main>
+  );
 }
 
 export default function HomePage() {
-  const [view, setView] = useState<View>("dashboard"), [role, setRole] = useState<UserRole>("manager"), [units, setUnits] = useState<UnitConfig[]>(UNITS), [unit, setUnit] = useState<UnitConfig>(UNITS[0]), [entries, setEntries] = useState<SalesEntry[]>([]), [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]), [theme, setTheme] = useState<Theme>("light"), [toast, setToast] = useState<string | null>(null), [unitMenu, setUnitMenu] = useState(false), [loaded, setLoaded] = useState(false);
-  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">(firebaseConfigured ? "checking" : "signedout"), [loginError, setLoginError] = useState(""), [loginLoading, setLoginLoading] = useState(false), [profile, setProfile] = useState({ name: "", email: "" });
+  const [view, setView] = useState<View>("dashboard");
+  const [role, setRole] = useState<UserRole>("manager");
+  const [units, setUnits] = useState<UnitConfig[]>(UNITS);
+  const [unit, setUnit] = useState<UnitConfig>(UNITS[0]);
+  const [entries, setEntries] = useState<SalesEntry[]>([]);
+  const [cmvRecords, setCmvRecords] = useState<CmvEntry[]>([]);
+  const [freelancers, setFreelancers] = useState<FreelancerEntry[]>([]);
+  const [freelancersModalOpen, setFreelancersModalOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>("light");
+  const [toast, setToast] = useState<string | null>(null);
+  const [unitMenu, setUnitMenu] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [authState, setAuthState] = useState<"checking" | "signedout" | "signedin">(firebaseConfigured ? "checking" : "signedout");
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [profile, setProfile] = useState({ name: "", email: "" });
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." });
   const [permittedUnits, setPermittedUnits] = useState<string[]>([]);
+
   async function synchronizeMonth(unitIds: string[]) {
     if (!unitIds.length) return;
     setSyncStatus({ state: "syncing", message: "Buscando Salão, Delivery e iFood desde o primeiro dia do mês..." });
     const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
     const dates = monthDatesUntil(currentDate), synchronized: SalesEntry[] = [], failures: string[] = [];
-    const totalDays = dates.length * unitIds.length;
-    let completedDays = 0, fetchedSessions = 0, importedSessions = 0, ignoredSessions = 0, workerVersion = "";
+    let importedSessions = 0, ignoredSessions = 0;
     const ignoredReasons = { open: 0, canceled: 0, withoutValue: 0 };
-    const classifiedSessions = { salao: 0, delivery: 0, ifood: 0 };
-    const observedChannels = new Set<string>();
-    const observedTableTypes = new Set<string>();
-    const observedDeliveryBy = new Set<string>();
-    const observedPaymentMethods = new Set<string>();
-    const deliverySignalStats: Record<string, { count: number; value: number }> = {};
-    const basisTotals = {
-      payment: { salao: 0, delivery: 0, ifood: 0 },
-      product: { salao: 0, delivery: 0, ifood: 0 },
-      service: { salao: 0, delivery: 0, ifood: 0 },
-    };
-    const adjustmentTotals = { deliveryTax: 0, totalDelivery: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0, paymentMinusProduct: 0 };
-    const paymentMethodTotals: Record<string, number> = {};
-    const paymentMethodTotalsByChannel: Record<"salao" | "delivery" | "ifood", Record<string, number>> = { salao: {}, delivery: {}, ifood: {} };
-    const openProductTotals = { salao: 0, delivery: 0, ifood: 0 };
-    const openServiceTotals = { salao: 0, delivery: 0, ifood: 0 };
-    const adjustmentTotalsByChannel = {
-      salao: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-      delivery: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-      ifood: { totalDelivery: 0, deliveryTax: 0, deliveryFeeDiscount: 0, merchantDiscount: 0, discountTotal: 0, serviceDelta: 0 },
-    };
-    const ignoredFinancials = {
-      canceled: { salao: { count: 0, payment: 0, product: 0 }, delivery: { count: 0, payment: 0, product: 0 }, ifood: { count: 0, payment: 0, product: 0 } },
-      open: { salao: { count: 0, payment: 0, product: 0 }, delivery: { count: 0, payment: 0, product: 0 }, ifood: { count: 0, payment: 0, product: 0 } },
-      withoutValue: { salao: { count: 0, payment: 0, product: 0 }, delivery: { count: 0, payment: 0, product: 0 }, ifood: { count: 0, payment: 0, product: 0 } },
-    };
-    const authenticatedRestaurants = new Set<string>();
     for (const unitId of unitIds) {
-      const unitName = units.find((item) => item.id === unitId)?.name || unitId;
       for (let index = 0; index < dates.length; index += 3) {
         const batchDates = dates.slice(index, index + 3);
         const batch = await Promise.allSettled(batchDates.map((date) => syncTakeatSale(unitId, date)));
-        const batchEntries: SalesEntry[] = [];
         for (const result of batch) {
           if (result.status === "fulfilled") {
             synchronized.push(result.value);
-            batchEntries.push(result.value);
             const summary = result.value.sourceSummary;
-            fetchedSessions += summary?.fetched ?? ((summary?.sessions ?? 0) + (summary?.ignored ?? 0));
             importedSessions += summary?.sessions ?? 0;
             ignoredSessions += summary?.ignored ?? 0;
-            ignoredReasons.open += summary?.ignoredReasons?.open ?? 0;
-            ignoredReasons.canceled += summary?.ignoredReasons?.canceled ?? 0;
-            ignoredReasons.withoutValue += summary?.ignoredReasons?.withoutValue ?? 0;
-            classifiedSessions.salao += summary?.classifiedSessions?.salao ?? 0;
-            classifiedSessions.delivery += summary?.classifiedSessions?.delivery ?? 0;
-            classifiedSessions.ifood += summary?.classifiedSessions?.ifood ?? 0;
-            summary?.channels?.forEach((channel) => observedChannels.add(channel));
-            summary?.tableTypes?.forEach((type) => observedTableTypes.add(type));
-            summary?.deliveryBy?.forEach((type) => observedDeliveryBy.add(type));
-            summary?.paymentMethods?.forEach((method) => observedPaymentMethods.add(method));
-            Object.entries(summary?.deliverySignalStats || {}).forEach(([key, stat]) => {
-              const current = deliverySignalStats[key] || { count: 0, value: 0 };
-              deliverySignalStats[key] = { count: current.count + (stat.count || 0), value: current.value + (stat.value || 0) };
-            });
-            (["payment", "product", "service"] as const).forEach((basis) => {
-              basisTotals[basis].salao += summary?.basisTotals?.[basis]?.salao || 0;
-              basisTotals[basis].delivery += summary?.basisTotals?.[basis]?.delivery || 0;
-              basisTotals[basis].ifood += summary?.basisTotals?.[basis]?.ifood || 0;
-            });
-            (Object.keys(adjustmentTotals) as Array<keyof typeof adjustmentTotals>).forEach((key) => {
-              adjustmentTotals[key] += summary?.adjustmentTotals?.[key] || 0;
-            });
-            Object.entries(summary?.paymentMethodTotals || {}).forEach(([method, value]) => {
-              paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + value;
-            });
-            (["salao", "delivery", "ifood"] as const).forEach((channel) => {
-              Object.entries(summary?.paymentMethodTotalsByChannel?.[channel] || {}).forEach(([method, value]) => {
-                paymentMethodTotalsByChannel[channel][method] = (paymentMethodTotalsByChannel[channel][method] || 0) + value;
-              });
-              (Object.keys(adjustmentTotalsByChannel[channel]) as Array<keyof typeof adjustmentTotalsByChannel.salao>).forEach((key) => {
-                adjustmentTotalsByChannel[channel][key] += summary?.adjustmentTotalsByChannel?.[channel]?.[key] || 0;
-              });
-              openServiceTotals[channel] += summary?.openServiceTotals?.[channel] || 0;
-              (["canceled", "open", "withoutValue"] as const).forEach((reason) => {
-                const source = summary?.ignoredFinancials?.[reason]?.[channel];
-                ignoredFinancials[reason][channel].count += source?.count || 0;
-                ignoredFinancials[reason][channel].payment += source?.payment || 0;
-                ignoredFinancials[reason][channel].product += source?.product || 0;
-              });
-            });
-            openProductTotals.salao += summary?.openProductTotals?.salao || 0;
-            openProductTotals.delivery += summary?.openProductTotals?.delivery || 0;
-            openProductTotals.ifood += summary?.openProductTotals?.ifood || 0;
-            workerVersion = summary?.workerVersion || workerVersion;
-            const restaurantName = summary?.restaurant?.fantasyName || summary?.restaurant?.name;
-            if (restaurantName) authenticatedRestaurants.add(restaurantName);
+            if (firebaseConfigured) void saveDailySale(result.value).catch(console.error);
+          } else {
+            failures.push(result.reason instanceof Error ? result.reason.message : "Erro");
           }
-          else failures.push(result.reason instanceof Error ? result.reason.message : "Erro desconhecido na Takeat.");
         }
-        if (batchEntries.length) {
-          await Promise.all(batchEntries.map((entry) => saveDailySale(entry)));
-          setEntries((current) => mergeSalesEntries(current, batchEntries));
-        }
-        completedDays += batchDates.length;
-        setSyncStatus({
-          state: "syncing",
-          message: `${unitName}: ${Math.min(index + batchDates.length, dates.length)} de ${dates.length} dias • ${fetchedSessions} comandas recebidas • ${importedSessions} válidas.`,
-        });
       }
     }
-    if (failures.length) {
-      const unique = [...new Set(failures)];
-      setSyncStatus({ state: "error", message: synchronized.length ? `${synchronized.length} dias atualizados. ${unique[0]}` : unique[0] });
-      return;
-    }
-    const unitText = unitIds.length > 1 ? ` em ${unitIds.length} unidades` : "";
-    const versionText = workerVersion ? ` • Integrador ${workerVersion}` : " • Integrador sem identificação";
-    const restaurantText = authenticatedRestaurants.size ? ` • Restaurante API: ${[...authenticatedRestaurants].join(", ")}` : "";
-    const ignoredText = ignoredSessions ? ` (${ignoredReasons.open} abertas, ${ignoredReasons.canceled} canceladas, ${ignoredReasons.withoutValue} sem valor)` : "";
-    setSyncStatus({ state: "success", message: `${dates.length} dias atualizados${unitText} • ${importedSessions} vendas válidas • ${ignoredSessions} canceladas ou sem faturamento${restaurantText}${versionText}. Atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.` });
+    setEntries((current) => {
+      const byId = new Map(current.map((e) => [`${e.unitId}_${e.date}`, e]));
+      synchronized.forEach((e) => byId.set(`${e.unitId}_${e.date}`, e));
+      return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+    });
+    setSyncStatus({
+      state: "success",
+      message: `${dates.length} dias atualizados • ${importedSessions} vendas válidas da Takeat sincronizadas.`,
+    });
   }
-  useEffect(() => { const id = window.requestAnimationFrame(() => { setLoaded(true); const saved = window.localStorage.getItem("house-theme") as Theme | null; if (saved) setTheme(saved); }); return () => window.cancelAnimationFrame(id); }, []);
-  useEffect(() => { if (!loaded) return; window.localStorage.setItem("house-theme", theme); document.documentElement.dataset.theme = theme; }, [theme, loaded]);
-  useEffect(() => { if (toast) { const id = window.setTimeout(() => setToast(null), 3200); return () => window.clearTimeout(id); } }, [toast]);
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      setLoaded(true);
+      const saved = window.localStorage.getItem("house-theme") as Theme | null;
+      if (saved) setTheme(saved);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    window.localStorage.setItem("house-theme", theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme, loaded]);
+
+  useEffect(() => {
+    if (toast) {
+      const id = window.setTimeout(() => setToast(null), 3200);
+      return () => window.clearTimeout(id);
+    }
+  }, [toast]);
+
   useEffect(() => {
     if (!firebaseConfigured) return;
     let unsubscribe: undefined | (() => void);
     void (async () => {
-      const [{ auth }, { onAuthStateChanged }, { loadUserProfile, loadUnitSales, loadCmvEntries, loadUnitGoals }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth"), import("@/lib/firestore-service")]);
+      const [{ auth }, { onAuthStateChanged }, { loadUserProfile, loadUnitSales, loadCmvEntries, loadUnitGoals, loadFreelancerEntries }] = await Promise.all([
+        import("@/lib/firebase"),
+        import("firebase/auth"),
+        import("@/lib/firestore-service"),
+      ]);
       if (!auth) return setAuthState("signedout");
       unsubscribe = onAuthStateChanged(auth, async (user) => {
-        if (!user) { setEntries([]); setCmvRecords([]); setProfile({ name: "", email: "" }); setAuthState("signedout"); return; }
-        const profile = await loadUserProfile(user.uid);
-        if (!profile?.role) { setLoginError("Seu perfil ainda não foi liberado pelo administrador."); setAuthState("signedout"); return; }
-        setRole(profile.role); setProfile({ name: profile.name || user.email || "Usuário House", email: profile.email || user.email || "" });
+        if (!user) {
+          setEntries([]);
+          setCmvRecords([]);
+          setFreelancers([]);
+          setProfile({ name: "", email: "" });
+          setAuthState("signedout");
+          return;
+        }
+        const userProfile = await loadUserProfile(user.uid);
+        if (!userProfile?.role) {
+          setLoginError("Seu perfil ainda não foi liberado pelo administrador.");
+          setAuthState("signedout");
+          return;
+        }
+        setRole(userProfile.role);
+        setProfile({ name: userProfile.name || user.email || "Usuário House", email: userProfile.email || user.email || "" });
         const monthPrefix = isoDate(currentDate).slice(0, 7);
-        const permitted = profile.role === "admin" ? UNITS.map((item) => item.id) : profile.unitId ? [profile.unitId] : [];
-        const [goalOverrides, storedCmv] = await Promise.all([
-          loadUnitGoals(permitted).catch((error) => {
-            console.warn("Metas personalizadas indisponíveis; usando configuração padrão.", error);
-            return [];
-          }),
-          loadCmvEntries(permitted).catch((error) => {
-            console.warn("Histórico de CMV indisponível; o restante do painel continuará funcionando.", error);
-            return [];
-          }),
+        const permitted = userProfile.role === "admin" ? UNITS.map((item) => item.id) : userProfile.unitId ? [userProfile.unitId] : [];
+        const [goalOverrides, storedCmv, storedFreelancers] = await Promise.all([
+          loadUnitGoals(permitted).catch(() => []),
+          loadCmvEntries(permitted).catch(() => []),
+          loadFreelancerEntries(permitted, monthPrefix).catch(() => []),
         ]);
         const effectiveUnits = UNITS.map((base) => {
           const override = goalOverrides.find((item) => item.id === base.id);
@@ -459,35 +1754,233 @@ export default function HomePage() {
         });
         setUnits(effectiveUnits);
         setCmvRecords(storedCmv);
-        if (profile.role === "admin") {
+        setFreelancers(storedFreelancers);
+        if (userProfile.role === "admin") {
           const adminDefaultUnit = effectiveUnits.find((item) => item.id === "house190-teixeira") || effectiveUnits[0];
           setUnit(adminDefaultUnit);
           const salesByUnit = await Promise.all(effectiveUnits.map((item) => loadUnitSales(item.id, monthPrefix)));
           setEntries(salesByUnit.flat());
           setView("admin");
-        } else if (profile.unitId) {
-          const assigned = effectiveUnits.find((item) => item.id === profile.unitId);
+        } else if (userProfile.unitId) {
+          const assigned = effectiveUnits.find((item) => item.id === userProfile.unitId);
           if (assigned) {
             setUnit(assigned);
             setEntries(await loadUnitSales(assigned.id, monthPrefix));
           }
         }
         setAuthState("signedin");
-        const automaticUnits = profile.role === "admin" ? [effectiveUnits.find((item) => item.id === "house190-teixeira")?.id || effectiveUnits[0].id] : permitted;
+        const automaticUnits = userProfile.role === "admin" ? [effectiveUnits.find((item) => item.id === "house190-teixeira")?.id || effectiveUnits[0].id] : permitted;
         setPermittedUnits(permitted);
-        void synchronizeMonth(automaticUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }));
+        void synchronizeMonth(automaticUnits).catch((error) =>
+          setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Erro ao sincronizar Takeat" })
+        );
       });
     })();
     return () => unsubscribe?.();
   }, []);
-  const login = async (email: string, password: string) => { setLoginLoading(true); setLoginError(""); try { const [{ auth }, { signInWithEmailAndPassword }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]); if (!auth) throw new Error(); await signInWithEmailAndPassword(auth, email, password); } catch { setLoginError("E-mail ou senha inválidos. Confira os dados e tente novamente."); } finally { setLoginLoading(false); } };
-  const logout = async () => { const [{ auth }, { signOut }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]); if (auth) await signOut(auth); setEntries([]); setCmvRecords([]); setPermittedUnits([]); setUnits(UNITS); setSyncStatus({ state: "idle", message: "As vendas do mês serão buscadas automaticamente." }); setView("dashboard"); setUnit(UNITS[0]); };
-  const save = async (entry: SalesEntry) => { const normalized = { ...entry, source: entry.source || "manual" } as SalesEntry; if (firebaseConfigured) { const { saveDailySale } = await import("@/lib/firestore-service"); await saveDailySale(normalized); } setEntries((current) => [...current.filter((item) => !(item.unitId === normalized.unitId && item.date === normalized.date)), normalized].sort((a, b) => a.date.localeCompare(b.date))); setToast(`Vendas de ${formatDateBR(normalized.date)} registradas com sucesso.`); setView("dashboard"); };
-  const syncTakeat = async (unitId: string, date: string) => { const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]); const entry = await syncTakeatSale(unitId, date); await saveDailySale(entry); setEntries((current) => [...current.filter((item) => !(item.unitId === entry.unitId && item.date === entry.date)), entry].sort((a, b) => a.date.localeCompare(b.date))); setToast(`Takeat sincronizada: ${formatMoney(entry.salao + entry.delivery + entry.ifood)} em ${formatDateBR(entry.date)}.`); return entry; };
-  const saveCmv = async (entry: CmvEntry) => { if (firebaseConfigured) { const { saveCmvEntry } = await import("@/lib/firestore-service"); await saveCmvEntry(entry); } setCmvRecords((current) => [entry, ...current.filter((item) => item.id !== entry.id)].sort((a, b) => b.weekStart.localeCompare(a.weekStart))); setToast(`CMV de ${formatDateBR(entry.weekStart)} a ${formatDateBR(entry.weekEnd)} salvo.`); };
-  const saveGoals = async (updated: UnitConfig) => { if (role !== "admin") throw new Error("Apenas administradores podem editar metas."); if (firebaseConfigured) { const { saveUnitGoals } = await import("@/lib/firestore-service"); await saveUnitGoals(updated); } setUnits((current) => current.map((item) => item.id === updated.id ? updated : item)); setUnit((current) => current.id === updated.id ? updated : current); setToast(`Todas as metas de ${updated.shortName} foram atualizadas.`); };
-  const switchTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system"); const pickUnit = (next: UnitConfig) => { setUnit(next); setUnitMenu(false); setView("dashboard"); if (role === "admin") void synchronizeMonth([next.id]).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." })); };
+
+  const login = async (email: string, password: string) => {
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      const [{ auth }, { signInWithEmailAndPassword }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]);
+      if (!auth) throw new Error();
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch {
+      setLoginError("E-mail ou senha inválidos. Confira os dados e tente novamente.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    const [{ auth }, { signOut }] = await Promise.all([import("@/lib/firebase"), import("firebase/auth")]);
+    if (auth) await signOut(auth);
+    setEntries([]);
+    setCmvRecords([]);
+    setFreelancers([]);
+    setPermittedUnits([]);
+    setUnits(UNITS);
+    setView("dashboard");
+    setUnit(UNITS[0]);
+  };
+
+  const save = async (entry: SalesEntry) => {
+    const normalized = { ...entry, source: entry.source || "manual" } as SalesEntry;
+    if (firebaseConfigured) {
+      const { saveDailySale } = await import("@/lib/firestore-service");
+      await saveDailySale(normalized);
+    }
+    setEntries((current) => [...current.filter((item) => !(item.unitId === normalized.unitId && item.date === normalized.date)), normalized].sort((a, b) => a.date.localeCompare(b.date)));
+    setToast(`Vendas de ${formatDateBR(normalized.date)} registradas.`);
+    setView("dashboard");
+  };
+
+  const syncTakeat = async (unitId: string, date: string) => {
+    const [{ syncTakeatSale }, { saveDailySale }] = await Promise.all([import("@/lib/takeat-service"), import("@/lib/firestore-service")]);
+    const entry = await syncTakeatSale(unitId, date);
+    await saveDailySale(entry);
+    setEntries((current) => [...current.filter((item) => !(item.unitId === entry.unitId && item.date === entry.date)), entry].sort((a, b) => a.date.localeCompare(b.date)));
+    setToast(`Takeat sincronizada: ${formatMoney(entryTotal(entry))} em ${formatDateBR(entry.date)}.`);
+    return entry;
+  };
+
+  const saveCmv = async (entry: CmvEntry) => {
+    if (firebaseConfigured) {
+      const { saveCmvEntry } = await import("@/lib/firestore-service");
+      await saveCmvEntry(entry);
+    }
+    setCmvRecords((current) => [entry, ...current.filter((item) => item.id !== entry.id)].sort((a, b) => b.weekStart.localeCompare(a.weekStart)));
+    setToast(`CMV de ${formatDateBR(entry.weekStart)} a ${formatDateBR(entry.weekEnd)} salvo.`);
+  };
+
+  const saveFreelancer = async (entry: FreelancerEntry) => {
+    if (firebaseConfigured) {
+      const { saveFreelancerEntry } = await import("@/lib/firestore-service");
+      await saveFreelancerEntry(entry);
+    }
+    setFreelancers((current) => [entry, ...current.filter((f) => f.id !== entry.id)].sort((a, b) => b.date.localeCompare(a.date)));
+    setToast(`Diária de ${entry.role} (${formatMoney(entry.amount)}) registrada.`);
+  };
+
+  const deleteFreelancer = async (id: string) => {
+    if (firebaseConfigured) {
+      const { deleteFreelancerEntry } = await import("@/lib/firestore-service");
+      await deleteFreelancerEntry(id);
+    }
+    setFreelancers((current) => current.filter((f) => f.id !== id));
+    setToast("Lançamento de diarista removido.");
+  };
+
+  const saveGoals = async (updated: UnitConfig) => {
+    if (role !== "admin") throw new Error("Apenas administradores podem editar metas.");
+    if (firebaseConfigured) {
+      const { saveUnitGoals } = await import("@/lib/firestore-service");
+      await saveUnitGoals(updated);
+    }
+    setUnits((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    setUnit((current) => (current.id === updated.id ? updated : current));
+    setToast(`Metas de ${updated.shortName} foram atualizadas.`);
+  };
+
+  const switchTheme = () => setTheme((current) => (current === "system" ? "light" : current === "light" ? "dark" : "system"));
+  const pickUnit = (next: UnitConfig) => {
+    setUnit(next);
+    setUnitMenu(false);
+    setView("dashboard");
+    if (role === "admin") void synchronizeMonth([next.id]);
+  };
+
   if (authState === "checking") return <div className="app-loading"><span className="brand-mark"><BarChart3 size={25} /></span><div><i /><i /><i /></div></div>;
   if (authState === "signedout") return <LoginScreen onLogin={login} error={loginError} loading={loginLoading} />;
-  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} profile={profile} onLogout={() => void logout()} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{units.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} cmvRecords={cmvRecords} onNavigate={setView} syncStatus={syncStatus} onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }))} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "cmv" && <CmvScreen unit={unit} units={role === "admin" ? units : units.filter((item) => item.id === unit.id)} sales={entries} records={cmvRecords} role={role} onSave={saveCmv} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} profile={profile} onLogout={() => void logout()} />}{view === "admin" && <AdminScreen entries={entries} units={units} onUnit={pickUnit} onSaveGoals={saveGoals} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Atualização concluída</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
+
+  return (
+    <div className="app-shell">
+      <AppNavigation view={view} setView={setView} role={role} profile={profile} onLogout={() => void logout()} />
+      <main className="app-main">
+        <header className="topbar">
+          <div className="mobile-brand">
+            <span className="brand-mark"><BarChart3 size={20} /></span>
+            <strong>HOUSE GESTÃO</strong>
+          </div>
+          <div className="unit-selector-wrap">
+            <button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}>
+              <span className="unit-mini-logo"><Store size={18} /></span>
+              <div>
+                <small>Unidade atual</small>
+                <strong>{unit.name}</strong>
+              </div>
+              {role === "admin" && <ChevronDown size={17} />}
+            </button>
+            {unitMenu && (
+              <div className="unit-menu">
+                {units.map((item) => (
+                  <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}>
+                    <span><Building2 size={17} /></span>
+                    <div>
+                      <strong>{item.name}</strong>
+                      <small>{formatMoney(item.monthlyGoal)} de meta</small>
+                    </div>
+                    {item.id === unit.id && <i>✓</i>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="topbar-actions">
+            <button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">
+              {theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}
+            </button>
+            <button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}>
+              <span>{profile.name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase() || "GC"}</span>
+              <i />
+            </button>
+          </div>
+        </header>
+
+        <div className="content-wrap">
+          {view === "dashboard" && (
+            <Dashboard
+              unit={unit}
+              entries={entries}
+              cmvRecords={cmvRecords}
+              freelancers={freelancers}
+              onNavigate={setView}
+              syncStatus={syncStatus}
+              onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits)}
+              onOpenFreelancers={() => setFreelancersModalOpen(true)}
+            />
+          )}
+          {view === "history" && <HistoryScreen unit={unit} entries={entries} />}
+          {view === "cmv" && (
+            <CmvScreen
+              unit={unit}
+              units={role === "admin" ? units : units.filter((item) => item.id === unit.id)}
+              sales={entries}
+              records={cmvRecords}
+              role={role}
+              onSave={saveCmv}
+            />
+          )}
+          {view === "ai" && <AIScreen unit={unit} entries={entries} />}
+          {view === "profile" && (
+            <ProfileScreen
+              unit={unit}
+              entries={entries}
+              cmvRecords={cmvRecords}
+              freelancers={freelancers}
+              role={role}
+              profile={profile}
+              onLogout={() => void logout()}
+              onOpenFreelancers={() => setFreelancersModalOpen(true)}
+            />
+          )}
+          {view === "admin" && (
+            <AdminScreen entries={entries} units={units} onUnit={pickUnit} onSaveGoals={saveGoals} />
+          )}
+        </div>
+      </main>
+
+      {freelancersModalOpen && (
+        <FreelancersModal
+          unit={unit}
+          freelancers={freelancers}
+          onSave={saveFreelancer}
+          onDelete={deleteFreelancer}
+          onClose={() => setFreelancersModalOpen(false)}
+        />
+      )}
+
+      {toast && (
+        <div className="toast">
+          <span>✓</span>
+          <div>
+            <strong>Atualização concluída</strong>
+            <p>{toast}</p>
+          </div>
+          <button onClick={() => setToast(null)}><X size={16} /></button>
+        </div>
+      )}
+    </div>
+  );
 }

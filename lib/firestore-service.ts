@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -8,7 +9,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { CmvEntry, SalesEntry, UnitConfig } from "./types";
+import type { CmvEntry, FreelancerEntry, SalesEntry, UnitConfig } from "./types";
 
 export async function loadUserProfile(uid: string) {
   if (!db) return null;
@@ -104,3 +105,27 @@ export async function loadUnitGoals(unitIds: string[]) {
   const snapshots = await Promise.all(unitIds.map((unitId) => getDocs(query(collection(db, "goals"), where("unitId", "==", unitId)))));
   return snapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.data() as UnitConfig));
 }
+
+export async function saveFreelancerEntry(entry: FreelancerEntry) {
+  if (!db) throw new Error("Firebase não configurado");
+  await setDoc(doc(db, "freelancers", entry.id), cleanData(entry), { merge: true });
+}
+
+export async function deleteFreelancerEntry(id: string) {
+  if (!db) throw new Error("Firebase não configurado");
+  await deleteDoc(doc(db, "freelancers", id));
+}
+
+export async function loadFreelancerEntries(unitIds: string[], monthPrefix: string) {
+  if (!db || !unitIds.length) return [];
+  const snapshots = await Promise.all(
+    unitIds.map((unitId) =>
+      getDocs(query(collection(db, "freelancers"), where("unitId", "==", unitId)))
+    )
+  );
+  return snapshots
+    .flatMap((s) => s.docs.map((d) => d.data() as FreelancerEntry))
+    .filter((entry) => entry.date.startsWith(monthPrefix) || entry.month === monthPrefix)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+

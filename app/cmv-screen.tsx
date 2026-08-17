@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   Bot,
   Building2,
   Calendar,
@@ -10,12 +11,17 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   ClipboardEdit,
+  Copy,
   Factory,
   Gauge,
   Info,
   Package,
   PlusCircle,
   Save,
+  Send,
+  Share2,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -35,6 +41,11 @@ import {
   weeksInMonth,
 } from "@/lib/cmv-calculations";
 import { formatDateBR, formatMoney, formatPercent } from "@/lib/format";
+import {
+  calculateCmvBonusImpact,
+  detectCostAnomalies,
+  generateCmvWhatsAppText,
+} from "@/lib/smart-features";
 import type { CmvCosts, CmvEntry, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
 
 const costFields: Array<{ key: keyof CmvCosts; label: string; icon: React.ReactNode; color: string }> = [
@@ -100,6 +111,7 @@ export function CmvScreen({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(todayIso().slice(0, 7));
   const [ai, setAi] = useState<AIResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -122,6 +134,14 @@ export function CmvScreen({
 
   // Monthly across all units
   const monthlyByUnit = units.map((item) => ({ unit: item, metrics: monthlyCmv(liveRecords, item, selectedMonth) }));
+
+  // Smart Features: Semáforo de Bônus e Detecção de Anomalias
+  const bonusImpact = useMemo(
+    () => calculateCmvBonusImpact(metrics.percentage, revenue, metrics.totalCost, unit.cmvTargetPercent, 2000),
+    [metrics, revenue, unit.cmvTargetPercent]
+  );
+  const anomalies = useMemo(() => detectCostAnomalies(costs, unitRecords), [costs, unitRecords]);
+  const hasAnyAnomaly = anomalies.some((a) => a.isAnomaly);
 
   const selectDate = (date: string) => {
     const next = weekFromDate(date);
@@ -209,6 +229,23 @@ export function CmvScreen({
     } finally {
       setSaving(false);
     }
+  };
+
+  const shareWhatsApp = () => {
+    const text = generateCmvWhatsAppText({
+      unitName: unit.name,
+      periodStart: period.weekStart,
+      periodEnd: period.weekEnd,
+      revenue,
+      costs,
+      cmvPercent: metrics.percentage,
+      targetPercent: unit.cmvTargetPercent,
+    });
+    void navigator.clipboard.writeText(text);
+    setCopiedWhatsApp(true);
+    setTimeout(() => setCopiedWhatsApp(false), 3000);
+    const encoded = encodeURIComponent(text);
+    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
   };
 
   const runAiAnalysis = async () => {
@@ -330,6 +367,42 @@ export function CmvScreen({
             </div>
           </section>
 
+          {/* Semáforo do Impacto no Bônus */}
+          {hasCosts && revenue > 0 && (
+            <section className={`cmv-bonus-semaphore surface-card tone-${bonusImpact.statusTone}`}>
+              <div className="semaphore-icon">
+                {bonusImpact.isBlocked ? <ShieldAlert size={24} /> : <ShieldCheck size={24} />}
+              </div>
+              <div className="semaphore-body">
+                <div className="semaphore-head">
+                  <span className="eyebrow">Impacto no Bônus</span>
+                  <span className={`status-badge status-${bonusImpact.statusTone}`}>
+                    {bonusImpact.statusLabel}
+                  </span>
+                </div>
+                <h3>{bonusImpact.actionAdvice}</h3>
+                <div className="semaphore-kpis">
+                  <div>
+                    <span>Teto de CMV:</span>
+                    <strong>≤ {formatPercent(unit.cmvTargetPercent)}</strong>
+                  </div>
+                  <div>
+                    <span>CMV Atual:</span>
+                    <strong className={bonusImpact.isBlocked ? "negative" : "positive"}>
+                      {formatPercent(metrics.percentage)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{bonusImpact.isBlocked ? "Custo a cortar:" : "Margem de folga:"}</span>
+                    <strong className={bonusImpact.isBlocked ? "negative" : "positive"}>
+                      {bonusImpact.isBlocked ? formatMoney(bonusImpact.excessReais) : formatMoney(bonusImpact.marginReais)}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* Workspace de Custos */}
           <section className="cmv-workspace">
             <div className="cmv-cost-panel surface-card">
@@ -343,31 +416,40 @@ export function CmvScreen({
               </div>
 
               <div className="cmv-cost-grid">
-                {costFields.map((field, index) => (
-                  <label key={field.key} className={`cmv-cost-tile cmv-cost-${index + 1}`}>
-                    <span className="cmv-cost-icon">{field.icon}</span>
-                    <span className="cmv-cost-name">
-                      <b>{field.label}</b>
-                      <small>Acumulado de 7 dias</small>
-                    </span>
-                    <div className="cmv-money-input">
-                      <i>R$</i>
-                      <input
-                        aria-label={`Custo de ${field.label}`}
-                        min="0"
-                        step="0.01"
-                        inputMode="decimal"
-                        type="number"
-                        value={costs[field.key] || ""}
-                        placeholder="0,00"
-                        onChange={(event) => {
-                          setCosts({ ...costs, [field.key]: Math.max(Number(event.target.value), 0) });
-                          setSaved(false);
-                        }}
-                      />
-                    </div>
-                  </label>
-                ))}
+                {costFields.map((field, index) => {
+                  const anomaly = anomalies.find((a) => a.key === field.key);
+                  return (
+                    <label key={field.key} className={`cmv-cost-tile cmv-cost-${index + 1}`}>
+                      <span className="cmv-cost-icon">{field.icon}</span>
+                      <span className="cmv-cost-name">
+                        <b>{field.label}</b>
+                        <small>Acumulado de 7 dias</small>
+                      </span>
+                      <div className="cmv-money-input">
+                        <i>R$</i>
+                        <input
+                          aria-label={`Custo de ${field.label}`}
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          type="number"
+                          value={costs[field.key] || ""}
+                          placeholder="0,00"
+                          onChange={(event) => {
+                            setCosts({ ...costs, [field.key]: Math.max(Number(event.target.value), 0) });
+                            setSaved(false);
+                          }}
+                        />
+                      </div>
+                      {anomaly?.isAnomaly && (
+                        <div className="cost-anomaly-warning">
+                          <AlertTriangle size={12} />
+                          <span>Salto atípico (+{formatPercent(anomaly.differencePoints)})</span>
+                        </div>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
 
               <div className="cmv-save-row">
@@ -376,13 +458,24 @@ export function CmvScreen({
                   <strong>{formatMoney(metrics.totalCost)}</strong>
                   <small>{hasCosts && revenue > 0 ? `${formatPercent(metrics.percentage)} do faturamento Takeat` : "Atualizado em tempo real"}</small>
                 </div>
-                <button
-                  className="primary-button"
-                  onClick={() => void save()}
-                  disabled={saving || revenue <= 0}
-                >
-                  {saving ? "Salvando..." : <><Save size={17} /> {editingId ? "Salvar alterações" : "Salvar conferência"}</>}
-                </button>
+                <div className="cmv-save-actions">
+                  <button
+                    type="button"
+                    className="secondary-button cmv-share-btn"
+                    onClick={shareWhatsApp}
+                    disabled={revenue <= 0}
+                    title="Compartilhar fechamento no WhatsApp"
+                  >
+                    <Share2 size={16} /> {copiedWhatsApp ? "Copiado!" : "WhatsApp"}
+                  </button>
+                  <button
+                    className="primary-button"
+                    onClick={() => void save()}
+                    disabled={saving || revenue <= 0}
+                  >
+                    {saving ? "Salvando..." : <><Save size={17} /> {editingId ? "Salvar alterações" : "Salvar conferência"}</>}
+                  </button>
+                </div>
               </div>
               {saved && (
                 <p className="cmv-saved">

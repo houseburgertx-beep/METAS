@@ -85,6 +85,19 @@ export type OperatingInputs = {
   freelancerSpend: number;
 };
 
+export type FreelancerEntry = {
+  id: string;
+  unitId: string;
+  date: string;
+  month: string;
+  role: string;
+  name?: string;
+  amount: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ChannelPerformance = {
   key: "salao" | "delivery" | "ifood";
   label: string;

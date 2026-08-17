@@ -27,5 +27,8 @@ service cloud.firestore {
     match /settings/{id} {
       allow read, write: if signedIn();
     }
+    match /freelancers/{id} {
+      allow read, write: if signedIn();
+    }
   }
 }
