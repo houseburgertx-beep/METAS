@@ -14,6 +14,8 @@ import { CmvScreen } from "./cmv-screen";
 import { calculateBonus, calculatePerformance, validateDetails } from "@/lib/calculations";
 import { MANAGEMENT_RULES, UNITS } from "@/lib/config";
 import { formatDateBR, formatMoney, formatMoneyInput, formatPercent, parseMoney } from "@/lib/format";
+import { monthlyCmv, revenueForPeriod } from "@/lib/cmv-calculations";
+import { requestAiAnalysis } from "@/lib/ai-service";
 import type { CmvEntry, OperatingInputs, SalesEntry, UnitConfig, UserRole } from "@/lib/types";
 
 type View = "dashboard" | "launch" | "history" | "cmv" | "ai" | "profile" | "admin";
@@ -83,7 +85,7 @@ function Donut({ channels }: { channels: { label: string; realized: number; key:
   return <div className="donut-layout"><svg className="donut" viewBox="0 0 42 42" aria-label="Participação por canal"><circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--surface-secondary)" strokeWidth="6" />{slices.map(({ channel, percent, offset }) => <circle key={channel.key} cx="21" cy="21" r="15.9" fill="none" stroke={colors[channel.key]} strokeWidth="6" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={25 - offset} />)}</svg><div className="donut-legend">{channels.map((channel) => <div key={channel.key}><i style={{ background: colors[channel.key] }} /><span>{channel.label}</span><strong>{formatPercent((channel.realized / total) * 100)}</strong></div>)}</div></div>;
 }
 
-function Dashboard({ unit, entries, onNavigate, syncStatus, onSync }: { unit: UnitConfig; entries: SalesEntry[]; onNavigate: (view: View) => void; syncStatus: SyncStatus; onSync: () => void }) {
+function Dashboard({ unit, entries, cmvRecords, onNavigate, syncStatus, onSync }: { unit: UnitConfig; entries: SalesEntry[]; cmvRecords: CmvEntry[]; onNavigate: (view: View) => void; syncStatus: SyncStatus; onSync: () => void }) {
   const metrics = useMemo(() => calculatePerformance(unit, entries, currentDate), [unit, entries]), currentEntries = entries.filter((entry) => entry.unitId === unit.id), recent = currentEntries.slice(-7);
   const channelValues = (key: "salao" | "delivery" | "ifood") => recent.map((entry) => entry[key]);
   const statusTone = metrics.health === "green" ? "success" : metrics.health === "yellow" ? "warning" : "danger";
@@ -92,6 +94,17 @@ function Dashboard({ unit, entries, onNavigate, syncStatus, onSync }: { unit: Un
   const expectedPosition = Math.min(Math.max((metrics.expected / unit.monthlyGoal) * 100, 0), 100);
   const trajectoryGapStart = Math.min(realizedPosition, expectedPosition);
   const trajectoryGapWidth = Math.abs(realizedPosition - expectedPosition);
+
+  // Real-time Monthly CMV calculations for current unit
+  const currentMonthPrefix = isoDate(currentDate).slice(0, 7);
+  const liveRevenue = (record: CmvEntry) => {
+    const hasLoadedPeriod = entries.some((sale) => sale.unitId === record.unitId && sale.date >= record.weekStart && sale.date <= record.weekEnd);
+    return hasLoadedPeriod ? revenueForPeriod(entries, record.unitId, record.weekStart, record.weekEnd) : record.revenue;
+  };
+  const liveCmvRecords = cmvRecords.map((r) => ({ ...r, revenue: liveRevenue(r) }));
+  const monthCmvMetrics = useMemo(() => monthlyCmv(liveCmvRecords, unit, currentMonthPrefix), [liveCmvRecords, unit, currentMonthPrefix]);
+  const cmvHasData = monthCmvMetrics.weeks > 0;
+
   return <div className="screen-stack dashboard-screen">
     <section className={`sync-status-card takeat-state-${syncStatus.state}`} aria-live="polite"><span className="sync-status-icon"><RefreshCw size={18} /></span><div><strong>{syncStatus.state === "syncing" ? "Atualizando vendas" : syncStatus.state === "error" ? "Falha na atualização" : syncStatus.state === "success" ? "Takeat atualizada" : "Integração Takeat"}</strong><small>{syncStatus.message}</small></div><button type="button" onClick={onSync} disabled={syncStatus.state === "syncing"}>{syncStatus.state === "syncing" ? "Aguarde" : "Atualizar"}</button></section>
     <section className="hero-card surface-card entrance"><div className="hero-topline"><span>Faturamento do mês</span><span className="live-pill"><i /> Atualizado agora</span></div><div className="hero-grid"><div><strong className="hero-value">{formatMoney(metrics.total)}</strong><p><b>{formatPercent(metrics.percentage)}</b> da meta mensal</p></div><ProgressRing value={metrics.percentage} size={96} /></div>
@@ -105,6 +118,58 @@ function Dashboard({ unit, entries, onNavigate, syncStatus, onSync }: { unit: Un
         </div>
       </div>
       <div className="hero-foot"><div><span>Meta</span><strong>{formatMoney(unit.monthlyGoal)}</strong></div><div><span>Falta</span><strong>{formatMoney(metrics.missing)}</strong></div><div><span>Supermeta</span><strong>{formatMoney(unit.superGoal)}</strong></div></div></section>
+
+    {/* CMV do Mês Widget */}
+    <section className="surface-card cmv-dashboard-widget entrance delay-1">
+      <div className="cmv-widget-head">
+        <div className="cmv-widget-title">
+          <span className="metric-icon icon-crimson"><CircleDollarSign size={20} /></span>
+          <div>
+            <span className="eyebrow">Gestão de Custos</span>
+            <h2>CMV do Mês</h2>
+          </div>
+        </div>
+        <span className={`status-badge status-${cmvHasData ? (monthCmvMetrics.percentage <= unit.cmvTargetPercent ? "success" : "danger") : "neutral"}`}>
+          Meta ≤ {formatPercent(unit.cmvTargetPercent)}
+        </span>
+      </div>
+
+      <div className="cmv-widget-body">
+        <div className="cmv-widget-main-stat">
+          <strong className={cmvHasData ? (monthCmvMetrics.percentage <= unit.cmvTargetPercent ? "positive" : "negative") : ""}>
+            {cmvHasData ? formatPercent(monthCmvMetrics.percentage) : "—"}
+          </strong>
+          <p>
+            {cmvHasData
+              ? monthCmvMetrics.variancePoints <= 0
+                ? `${formatPercent(Math.abs(monthCmvMetrics.variancePoints))} abaixo do limite (Saudável)`
+                : `${formatPercent(monthCmvMetrics.variancePoints)} acima da meta (Atenção aos custos)`
+              : "Nenhuma conferência salva neste mês ainda"}
+          </p>
+        </div>
+        <div className="cmv-widget-details">
+          <div>
+            <span>Custos lançados</span>
+            <strong>{formatMoney(monthCmvMetrics.totalCost)}</strong>
+          </div>
+          <div>
+            <span>Faturamento Takeat</span>
+            <strong>{formatMoney(monthCmvMetrics.revenue)}</strong>
+          </div>
+          <div>
+            <span>Semanas conferidas</span>
+            <strong>{monthCmvMetrics.weeks} semana{monthCmvMetrics.weeks === 1 ? "" : "s"}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="cmv-widget-actions">
+        <button className="primary-button cmv-widget-btn" onClick={() => onNavigate("cmv")}>
+          <CircleDollarSign size={16} /> Abrir módulo de CMV / Lançar custos <ChevronRight size={15} />
+        </button>
+      </div>
+    </section>
+
     <section className={`health-card health-${metrics.health} entrance delay-1`}><div className="health-icon"><Activity size={23} /></div><div className="health-copy"><span className="eyebrow">Saúde da meta</span><h2>{metrics.healthLabel}</h2><p>Você está <strong>{formatMoney(Math.abs(metrics.gap))} {metrics.gap >= 0 ? "acima" : "abaixo"}</strong> da trajetória esperada.</p></div><div className="health-projection"><span>No ritmo atual</span><strong>{formatMoney(metrics.projection)}</strong></div></section>
     <section className="surface-card trajectory-card entrance delay-2"><div className="section-heading"><div><span className="eyebrow">Trajetória do mês</span><h2>Realizado x esperado</h2></div><span className={`status-badge status-${statusTone}`}>{formatPercent(metrics.trajectoryPercentage)} do ritmo</span></div><div className="trajectory-values"><div><span>Realizado</span><strong>{formatMoney(metrics.total)}</strong></div><div><span>Esperado até hoje</span><strong>{formatMoney(metrics.expected)}</strong></div><div className={metrics.gap >= 0 ? "positive" : "negative"}><span>Diferença</span><strong>{metrics.gap >= 0 ? "+" : "−"}{formatMoney(Math.abs(metrics.gap))}</strong></div></div>
       <div className={`trajectory-progress ${metrics.gap >= 0 ? "trajectory-ahead" : "trajectory-behind"}`}>
@@ -162,13 +227,52 @@ function HistoryScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntr
   </div>;
 }
 
-type AIResult = { diagnostic: string; alert: string; numbers: string[]; actions: string[]; tomorrow: string; demo?: boolean };
 function AIScreen({ unit, entries }: { unit: UnitConfig; entries: SalesEntry[] }) {
-  const metrics = calculatePerformance(unit, entries, currentDate); const [result, setResult] = useState<AIResult | null>(null), [loading, setLoading] = useState(false), [prompt, setPrompt] = useState("Analisar minha performance");
-  const analyze = async (intent: string) => { setLoading(true); setPrompt(intent); const [salao, delivery, ifood] = metrics.channels; const payload = { solicitacao: intent, unidade: unit.name, metaMensal: unit.monthlyGoal, superMeta: unit.superGoal, faturamentoAtual: metrics.total, metaEsperadaAteHoje: metrics.expected, gap: metrics.gap, projecao: metrics.projection, diasRestantes: metrics.remainingDays, mediaNecessaria: metrics.necessaryAverage, tendencia7Dias: metrics.weeklyEvolution, salao: { label: salao.label, realizado: salao.realized, meta: salao.goal }, delivery: { label: delivery.label, realizado: delivery.realized, meta: delivery.goal }, ifood: { label: ifood.label, realizado: ifood.realized, meta: ifood.goal }, regras: MANAGEMENT_RULES };
-    try { const response = await fetch("https://house-gestao-ia.gleucedias1.workers.dev/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const data = await response.json(); if (!response.ok) throw new Error(); setResult(data); } catch { setResult({ diagnostic: "Não foi possível gerar a análise agora.", alert: "Verifique a conexão e tente novamente.", numbers: [], actions: [], tomorrow: "Atualize os dados e tente novamente." }); } finally { setLoading(false); } };
-  return <div className="screen-stack ai-screen"><div className="page-title"><div><span className="eyebrow">House IA</span><h1>Consultor de performance</h1><p>Análises baseadas somente nos números calculados pelo sistema.</p></div></div><section className="ai-command-card"><div className="ai-orb"><Bot size={30} /></div><div><span className="ai-label"><Sparkles size={15} /> Analista de gestão</span><h2>Qual decisão você precisa tomar?</h2><p>A IA interpreta trajetória, canais, tendência, projeção e regras do programa.</p></div></section><div className="ai-prompt-grid">{["Analisar minha performance", "Como recuperar minha meta?", "Gerar plano de ação", "Analisar últimos 7 dias", "O que está prejudicando minha meta?", "Como alcançar a supermeta?"].map((item) => <button key={item} onClick={() => void analyze(item)}><Lightbulb size={17} /><span>{item}</span><ChevronRight size={16} /></button>)}</div>
-    {(loading || result) && <section className="analysis-result surface-card"><div className="analysis-header"><div><span className="eyebrow">Análise solicitada</span><h2>{prompt}</h2></div>{result?.demo && <span className="demo-badge">Modo demonstração</span>}</div>{loading ? <div className="analysis-skeleton">{[1,2,3,4].map((item) => <div key={item}><i /><i /><i /></div>)}</div> : result && <div className="analysis-sections"><article><span className="analysis-number">01</span><div><h3>Diagnóstico</h3><p>{result.diagnostic}</p></div></article><article className="alert-section"><span className="analysis-number">02</span><div><h3>Principal alerta</h3><p>{result.alert}</p></div></article><article><span className="analysis-number">03</span><div><h3>Números importantes</h3><ul>{result.numbers?.map((number) => <li key={number}>{number}</li>)}</ul></div></article><article><span className="analysis-number">04</span><div><h3>Plano de ação</h3><ol>{result.actions?.map((action, index) => <li key={action}><b>{index + 1}</b>{action}</li>)}</ol></div></article><article className="focus-section"><span className="analysis-number"><Target size={18} /></span><div><h3>Foco para amanhã</h3><p>{result.tomorrow}</p></div></article></div>}</section>}
+  const metrics = calculatePerformance(unit, entries, currentDate);
+  const [result, setResult] = useState<AIResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [prompt, setPrompt] = useState("Analisar minha performance");
+
+  const analyze = async (intent: string) => {
+    setLoading(true);
+    setPrompt(intent);
+    const [salao, delivery, ifood] = metrics.channels;
+    const payload = {
+      solicitacao: intent,
+      unidade: unit.name,
+      metaMensal: unit.monthlyGoal,
+      superMeta: unit.superGoal,
+      faturamentoAtual: metrics.total,
+      metaEsperadaAteHoje: metrics.expected,
+      gap: metrics.gap,
+      projecao: metrics.projection,
+      diasRestantes: metrics.remainingDays,
+      mediaNecessaria: metrics.necessaryAverage,
+      tendencia7Dias: metrics.weeklyEvolution,
+      salao: { label: salao.label, realizado: salao.realized, meta: salao.goal },
+      delivery: { label: delivery.label, realizado: delivery.realized, meta: delivery.goal },
+      ifood: { label: ifood.label, realizado: ifood.realized, meta: ifood.goal },
+      regras: MANAGEMENT_RULES,
+    };
+    try {
+      const data = await requestAiAnalysis(payload);
+      setResult(data);
+    } catch (err) {
+      console.error("Erro na análise House IA:", err);
+      setResult({
+        diagnostic: "Não foi possível gerar a análise agora.",
+        alert: "Verifique os dados da unidade e tente novamente.",
+        numbers: [],
+        actions: [],
+        tomorrow: "Atualize os lançamentos diários e tente novamente.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return <div className="screen-stack ai-screen"><div className="page-title"><div><span className="eyebrow">House IA</span><h1>Consultor de performance</h1><p>Análises baseadas nos números reais e calculados pelo sistema.</p></div></div><section className="ai-command-card"><div className="ai-orb"><Bot size={30} /></div><div><span className="ai-label"><Sparkles size={15} /> Analista de gestão</span><h2>Qual decisão você precisa tomar?</h2><p>A IA interpreta trajetória, canais, tendência, projeção e regras do programa.</p></div></section><div className="ai-prompt-grid">{["Analisar minha performance", "Como recuperar minha meta?", "Gerar plano de ação", "Analisar últimos 7 dias", "O que está prejudicando minha meta?", "Como alcançar a supermeta?"].map((item) => <button key={item} onClick={() => void analyze(item)}><Lightbulb size={17} /><span>{item}</span><ChevronRight size={16} /></button>)}</div>
+    {(loading || result) && <section className="analysis-result surface-card"><div className="analysis-header"><div><span className="eyebrow">Análise solicitada</span><h2>{prompt}</h2></div>{result?.demo && <span className="demo-badge">Modo demonstração</span>}</div>{loading ? <div className="analysis-skeleton">{[1,2,3,4].map((item) => <div key={item}><i /><i /><i /></div>)}</div> : result && <div className="analysis-sections"><article><span className="analysis-number">01</span><div><h3>Diagnóstico</h3><p>{result.diagnostic}</p></div></article><article className="alert-section"><span className="analysis-number">02</span><div><h3>Principal alerta</h3><p>{result.alert}</p></div></article><article className="analysis-number-section"><span className="analysis-number">03</span><div><h3>Números importantes</h3><ul>{result.numbers?.map((number) => <li key={number}>{number}</li>)}</ul></div></article><article className="analysis-action-section"><span className="analysis-number">04</span><div><h3>Plano de ação</h3><ol>{result.actions?.map((action, index) => <li key={action}><b>{index + 1}</b>{action}</li>)}</ol></div></article><article className="focus-section"><span className="analysis-number"><Target size={18} /></span><div><h3>Foco prioritário</h3><p>{result.tomorrow}</p></div></article></div>}</section>}
   </div>;
 }
 
@@ -385,5 +489,5 @@ export default function HomePage() {
   const switchTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system"); const pickUnit = (next: UnitConfig) => { setUnit(next); setUnitMenu(false); setView("dashboard"); if (role === "admin") void synchronizeMonth([next.id]).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." })); };
   if (authState === "checking") return <div className="app-loading"><span className="brand-mark"><BarChart3 size={25} /></span><div><i /><i /><i /></div></div>;
   if (authState === "signedout") return <LoginScreen onLogin={login} error={loginError} loading={loginLoading} />;
-  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} profile={profile} onLogout={() => void logout()} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{units.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} onNavigate={setView} syncStatus={syncStatus} onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }))} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "cmv" && <CmvScreen unit={unit} units={role === "admin" ? units : units.filter((item) => item.id === unit.id)} sales={entries} records={cmvRecords} role={role} onSave={saveCmv} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} profile={profile} onLogout={() => void logout()} />}{view === "admin" && <AdminScreen entries={entries} units={units} onUnit={pickUnit} onSaveGoals={saveGoals} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Atualização concluída</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
+  return <div className="app-shell"><AppNavigation view={view} setView={setView} role={role} profile={profile} onLogout={() => void logout()} /><main className="app-main"><header className="topbar"><div className="mobile-brand"><span className="brand-mark"><BarChart3 size={20} /></span><strong>HOUSE GESTÃO</strong></div><div className="unit-selector-wrap"><button className="unit-selector" onClick={() => role === "admin" && setUnitMenu(!unitMenu)}><span className="unit-mini-logo"><Store size={18} /></span><div><small>Unidade atual</small><strong>{unit.name}</strong></div>{role === "admin" && <ChevronDown size={17} />}</button>{unitMenu && <div className="unit-menu">{units.map((item) => <button key={item.id} className={item.id === unit.id ? "active" : ""} onClick={() => pickUnit(item)}><span><Building2 size={17} /></span><div><strong>{item.name}</strong><small>{formatMoney(item.monthlyGoal)} de meta</small></div>{item.id === unit.id && <i>✓</i>}</button>)}</div>}</div><div className="topbar-actions"><button className="icon-button" onClick={switchTheme} aria-label="Alternar tema">{theme === "dark" ? <Moon size={19} /> : theme === "light" ? <Sun size={19} /> : <Activity size={19} />}</button><button className="avatar-button" aria-label="Abrir perfil" onClick={() => setView("profile")}><span>GC</span><i /></button></div></header><div className="content-wrap">{view === "dashboard" && <Dashboard unit={unit} entries={entries} cmvRecords={cmvRecords} onNavigate={setView} syncStatus={syncStatus} onSync={() => void synchronizeMonth(role === "admin" ? [unit.id] : permittedUnits).catch((error) => setSyncStatus({ state: "error", message: error instanceof Error ? error.message : "Não foi possível consultar a Takeat." }))} />}{view === "history" && <HistoryScreen unit={unit} entries={entries} />}{view === "cmv" && <CmvScreen unit={unit} units={role === "admin" ? units : units.filter((item) => item.id === unit.id)} sales={entries} records={cmvRecords} role={role} onSave={saveCmv} />}{view === "ai" && <AIScreen unit={unit} entries={entries} />}{view === "profile" && <ProfileScreen unit={unit} entries={entries} role={role} profile={profile} onLogout={() => void logout()} />}{view === "admin" && <AdminScreen entries={entries} units={units} onUnit={pickUnit} onSaveGoals={saveGoals} />}</div></main>{toast && <div className="toast"><span>✓</span><div><strong>Atualização concluída</strong><p>{toast}</p></div><button onClick={() => setToast(null)}><X size={16} /></button></div>}</div>;
 }
