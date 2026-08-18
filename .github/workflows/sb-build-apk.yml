@@ -1,0 +1,38 @@
+name: Gerar APK - SB MENSAGENS
+
+on:
+  push:
+    branches: [ "sb-mensagens-apk-build" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Instalar SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Extrair projeto
+        run: |
+          base64 -d sb_project.zip.b64 > sb_project.zip
+          unzip -q sb_project.zip
+      - name: Compilar APK
+        working-directory: SB_MENSAGENS_Android
+        run: gradle assembleDebug
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SB-MENSAGENS-APK
+          path: SB_MENSAGENS_Android/app/build/outputs/apk/debug/app-debug.apk
