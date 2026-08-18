@@ -28,6 +28,7 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Extrair projeto
         run: |
+          cat sb_project.part01 sb_project.part02 sb_project.part03 sb_project.part04 sb_project.part05 sb_project.part06 > sb_project.zip.b64
           base64 -d sb_project.zip.b64 > sb_project.zip
           unzip -q sb_project.zip
       - name: Compilar APK
