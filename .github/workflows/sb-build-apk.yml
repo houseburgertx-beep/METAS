@@ -26,16 +26,22 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Instalar SDK 36
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Extrair projeto
+      - name: Extrair projeto base
         run: |
           cat sb_project.part01 sb_project.part02 sb_project.part03 sb_project.part04 sb_project.part05 sb_project.part06 > sb_project.zip.b64
           base64 -d sb_project.zip.b64 > sb_project.zip
           unzip -q sb_project.zip
+      - name: Aplicar atualizacao SB MENSAGENS
+        run: |
+          cat sb_overlay/index.part1 sb_overlay/index.part2 sb_overlay/index.part3 sb_overlay/index.part4 > /tmp/sb-index.gz.b64
+          base64 -d /tmp/sb-index.gz.b64 | gunzip > SB_MENSAGENS_Android/app/src/main/assets/index.html
+          cp sb_overlay/MainActivity.java SB_MENSAGENS_Android/app/src/main/java/com/sbmensagens/app/MainActivity.java
+          cp sb_overlay/AndroidManifest.xml SB_MENSAGENS_Android/app/src/main/AndroidManifest.xml
       - name: Compilar APK
         working-directory: SB_MENSAGENS_Android
         run: gradle assembleDebug
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: SB-MENSAGENS-APK
+          name: SB-MENSAGENS-APK-AUDIO
           path: SB_MENSAGENS_Android/app/build/outputs/apk/debug/app-debug.apk
