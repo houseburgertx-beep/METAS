@@ -3,6 +3,8 @@ name: Gerar APK - SB MENSAGENS
 on:
   push:
     branches: [ "sb-mensagens-apk-build" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
